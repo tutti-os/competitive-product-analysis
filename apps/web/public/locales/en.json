@@ -3,6 +3,8 @@
   "app.tagline": "Ask the agent to research a product — it runs an evidence-backed teardown and saves the report here.",
   "app.loading": "Loading workspace...",
 
+  "common.close": "Close",
+
   "session.new": "New research",
   "session.rename": "Rename",
   "session.empty": "No research yet. Start one below.",

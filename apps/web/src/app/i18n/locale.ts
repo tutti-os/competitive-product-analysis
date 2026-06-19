@@ -26,7 +26,7 @@ declare global {
 export function normalizeLocale(value: unknown): AppLocale | null {
   const next = String(value ?? "")
     .trim()
-    .replace("_", "-")
+    .replaceAll("_", "-")
     .toLowerCase();
   if (!next) return null;
   if (next === "zh" || next.startsWith("zh-")) return "zh-CN";
@@ -35,7 +35,20 @@ export function normalizeLocale(value: unknown): AppLocale | null {
 }
 
 export function resolveFallbackLocale(): AppLocale {
-  return "en";
+  return readBrowserLocale() ?? "en";
+}
+
+function readBrowserLocale(): AppLocale | null {
+  if (typeof navigator === "undefined") return null;
+  const candidates =
+    Array.isArray(navigator.languages) && navigator.languages.length > 0
+      ? navigator.languages
+      : [navigator.language];
+  for (const candidate of candidates) {
+    const locale = normalizeLocale(candidate);
+    if (locale) return locale;
+  }
+  return null;
 }
 
 export function readSyncAppContextLocale(): AppLocale | null {

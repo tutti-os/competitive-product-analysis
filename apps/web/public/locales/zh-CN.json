@@ -3,6 +3,8 @@
   "app.tagline": "直接让 agent 调研某个产品——它会做一份有据可循的深度拆解，并把报告存到这里。",
   "app.loading": "正在加载工作区...",
 
+  "common.close": "关闭",
+
   "session.new": "新建调研",
   "session.rename": "重命名",
   "session.empty": "还没有调研。在下方开始一个吧。",

@@ -171,7 +171,8 @@ async function handleRequest(request, response) {
   const relPath = decodeURIComponent(requestUrl.pathname).replace(/^\/+/, "");
   const target = path.join(serveDir, relPath);
   const normalized = path.normalize(target);
-  if (!normalized.startsWith(serveDir)) {
+  const relToRoot = path.relative(serveDir, normalized);
+  if (relToRoot.startsWith("..") || path.isAbsolute(relToRoot)) {
     response.statusCode = 403;
     response.end("forbidden");
     return;

@@ -113,13 +113,19 @@ function ArtifactPreview(props: {
 
   return (
     <div className="artifact-modal" onClick={props.onClose}>
-      <div className="artifact-modal-panel" onClick={(event) => event.stopPropagation()}>
+      <div
+        className="artifact-modal-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={`artifact-title-${props.artifact.id}`}
+        onClick={(event) => event.stopPropagation()}
+      >
         <header className="artifact-modal-header">
           <div>
-            <strong>{props.artifact.title}</strong>
+            <strong id={`artifact-title-${props.artifact.id}`}>{props.artifact.title}</strong>
             <span className="artifact-modal-path">{props.artifact.relativePath}</span>
           </div>
-          <button className="icon-button" onClick={props.onClose}>
+          <button className="icon-button" onClick={props.onClose} aria-label={t("common.close")}>
             <X size={16} />
           </button>
         </header>
