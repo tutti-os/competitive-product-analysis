@@ -1,0 +1,46 @@
+{
+  "app.title": "Competitive Analysis",
+  "app.tagline": "Ask the agent to research a product — it runs an evidence-backed teardown and saves the report here.",
+  "app.loading": "Loading workspace...",
+
+  "common.close": "Close",
+
+  "session.new": "New research",
+  "session.rename": "Rename",
+  "session.empty": "No research yet. Start one below.",
+  "session.artifacts": "{count} artifact(s)",
+  "session.deleteTitle": "Delete research",
+  "session.deleteBody": "Delete \"{title}\"? This action cannot be undone.",
+  "session.deleteConfirm": "Delete",
+  "session.deleteCancel": "Cancel",
+
+  "library.title": "Research library",
+  "library.searchPlaceholder": "Search research by title",
+  "library.noMatch": "No research matches \"{query}\".",
+  "library.sessionArtifacts": "Artifacts",
+  "library.report": "Report",
+  "library.rawFiles": "Raw files",
+  "library.rawCount": "{count} file(s)",
+  "library.empty": "Artifacts produced by this conversation appear here.",
+  "library.globalEmpty": "No research artifacts yet. Run a research task to populate the library.",
+  "library.loading": "Loading artifact...",
+  "library.loadError": "Could not load this artifact.",
+
+  "chat.emptyTitle": "What product should we research?",
+  "chat.emptyBody": "Describe the product and the agent will run the product-swipefile teardown: evidence collection, an inventory, then a decision-ready report — all saved to the research library.",
+  "chat.example1": "调研一下 Notion",
+  "chat.example2": "research Cursor's GTM playbook",
+  "chat.example3": "分析一下 Linear 的增长路径",
+  "chat.inputPlaceholder": "Ask to research a product, e.g. \"调研一下 Notion\"",
+  "chat.hint": "The agent runs the product-swipefile skill. report.md and evidence are saved to this conversation.",
+  "chat.send": "Send",
+  "chat.stop": "Stop",
+  "chat.pending": "Working...",
+  "chat.thinking.active": "Thinking...",
+  "chat.thinking.done": "Thought process",
+  "chat.tool.running": "running",
+
+  "agent.pick": "Pick an agent",
+  "agent.none": "No agent",
+  "agent.noneHint": "No local agent detected. Install and sign in to Claude or Codex to run research."
+}

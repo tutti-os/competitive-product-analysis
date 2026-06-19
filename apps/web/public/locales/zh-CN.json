@@ -1,0 +1,46 @@
+{
+  "app.title": "竞品分析",
+  "app.tagline": "直接让 agent 调研某个产品——它会做一份有据可循的深度拆解，并把报告存到这里。",
+  "app.loading": "正在加载工作区...",
+
+  "common.close": "关闭",
+
+  "session.new": "新建调研",
+  "session.rename": "重命名",
+  "session.empty": "还没有调研。在下方开始一个吧。",
+  "session.artifacts": "{count} 个产物",
+  "session.deleteTitle": "删除调研",
+  "session.deleteBody": "确定要删除「{title}」吗？此操作无法撤销。",
+  "session.deleteConfirm": "删除",
+  "session.deleteCancel": "取消",
+
+  "library.title": "调研库",
+  "library.searchPlaceholder": "按标题搜索调研",
+  "library.noMatch": "没有匹配「{query}」的调研。",
+  "library.sessionArtifacts": "产物",
+  "library.report": "报告",
+  "library.rawFiles": "原始文件",
+  "library.rawCount": "{count} 个文件",
+  "library.empty": "本次对话产出的产物会显示在这里。",
+  "library.globalEmpty": "还没有调研产物。跑一次调研即可填充调研库。",
+  "library.loading": "正在加载产物...",
+  "library.loadError": "无法加载该产物。",
+
+  "chat.emptyTitle": "想调研哪个产品？",
+  "chat.emptyBody": "描述一下产品，agent 会用 product-swipefile 跑一遍深度拆解：先取证、建立事实总账，再产出一份可直接用于决策的报告——全部存进调研库。",
+  "chat.example1": "调研一下 Notion",
+  "chat.example2": "research Cursor 的 GTM 打法",
+  "chat.example3": "分析一下 Linear 的增长路径",
+  "chat.inputPlaceholder": "让 agent 调研一个产品，例如「调研一下 Notion」",
+  "chat.hint": "agent 会运行 product-swipefile skill，report.md 与证据会保存到本次对话。",
+  "chat.send": "发送",
+  "chat.stop": "停止",
+  "chat.pending": "处理中...",
+  "chat.thinking.active": "思考中...",
+  "chat.thinking.done": "思考过程",
+  "chat.tool.running": "运行中",
+
+  "agent.pick": "选择 agent",
+  "agent.none": "无可用 agent",
+  "agent.noneHint": "未检测到本地 agent。请安装并登录 Claude 或 Codex 后再进行调研。"
+}

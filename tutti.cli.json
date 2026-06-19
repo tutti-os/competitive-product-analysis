@@ -1,0 +1,172 @@
+{
+  "schemaVersion": "tutti.app.cli.v1",
+  "scope": "competition",
+  "description": "Browse the competitive-analysis research library and start evidence-backed product teardowns.",
+  "documentation": {
+    "file": "COMMANDS.md"
+  },
+  "commands": [
+    {
+      "path": ["status"],
+      "summary": "Show runtime and provider status",
+      "description": "Report app health: whether the research skill is bundled, which local agent providers are detected, the default provider, library counts, and whether the Tutti CLI bridge is reachable.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      },
+      "output": {
+        "defaultMode": "json",
+        "json": true
+      },
+      "handler": {
+        "kind": "http",
+        "method": "POST",
+        "path": "/tutti/cli/status",
+        "timeoutMs": 15000
+      }
+    },
+    {
+      "path": ["sessions"],
+      "summary": "List research sessions",
+      "description": "List research conversations, most recently updated first, optionally filtered by a title or product-name substring.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Case-insensitive substring to match against session title or product name."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "description": "Maximum number of sessions to return (default 50)."
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Number of sessions to skip from the start for pagination (default 0)."
+          }
+        }
+      },
+      "output": {
+        "defaultMode": "json",
+        "json": true
+      },
+      "handler": {
+        "kind": "http",
+        "method": "POST",
+        "path": "/tutti/cli/sessions",
+        "timeoutMs": 15000
+      }
+    },
+    {
+      "path": ["reports"],
+      "summary": "List captured research artifacts",
+      "description": "List captured research artifacts (report.md, inventory.md, meta.json, raw evidence) across all sessions or within one session, with ids usable by the report command.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "session": {
+            "type": "string",
+            "description": "Restrict results to a single session id."
+          },
+          "query": {
+            "type": "string",
+            "description": "Case-insensitive substring to match against artifact title, summary, session title, or product name."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200,
+            "description": "Maximum number of artifacts to return (default 50)."
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Number of artifacts to skip from the start for pagination (default 0)."
+          }
+        }
+      },
+      "output": {
+        "defaultMode": "json",
+        "json": true
+      },
+      "handler": {
+        "kind": "http",
+        "method": "POST",
+        "path": "/tutti/cli/reports",
+        "timeoutMs": 15000
+      }
+    },
+    {
+      "path": ["report"],
+      "summary": "Read one research artifact",
+      "description": "Return the full content (Markdown or JSON) of a single captured artifact, identified by its session id and artifact id from the reports command.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "session": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Session id that owns the artifact."
+          },
+          "artifact": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Artifact id from the reports command."
+          }
+        },
+        "required": ["session", "artifact"]
+      },
+      "output": {
+        "defaultMode": "json",
+        "json": true
+      },
+      "handler": {
+        "kind": "http",
+        "method": "POST",
+        "path": "/tutti/cli/report",
+        "timeoutMs": 15000
+      }
+    },
+    {
+      "path": ["research"],
+      "summary": "Start a research run",
+      "description": "Kick off an evidence-backed product teardown with the local agent. Returns immediately with a session id and run id; poll the sessions or reports commands for results.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "product": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Product to research, or a full research prompt."
+          },
+          "session": {
+            "type": "string",
+            "description": "Optional existing session id to continue; a new session is created when omitted."
+          },
+          "provider": {
+            "type": "string",
+            "description": "Local agent provider override (e.g. claude or codex)."
+          },
+          "model": {
+            "type": "string",
+            "description": "Model override for the chosen provider."
+          }
+        },
+        "required": ["product"]
+      },
+      "output": {
+        "defaultMode": "json",
+        "json": true
+      },
+      "handler": {
+        "kind": "http",
+        "method": "POST",
+        "path": "/tutti/cli/research",
+        "timeoutMs": 15000
+      }
+    }
+  ]
+}
