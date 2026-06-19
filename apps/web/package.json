@@ -5,6 +5,7 @@
   "type": "module",
   "dependencies": {
     "@product-competition/shared": "workspace:*",
+    "dompurify": "^3.4.11",
     "lucide-react": "^0.562.0",
     "marked": "^15.0.0",
     "react": "^19.2.0",

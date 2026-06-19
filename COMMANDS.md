@@ -22,14 +22,16 @@ before depending on a command, and prefer `--json` for app-to-app calls:
 ```
 
 - `competition status` — runtime + provider health, library counts, and Tutti CLI reachability. Input: none.
-- `competition sessions [--query <text>] [--limit <n>]` — list research sessions, newest first.
-- `competition reports [--session <id>] [--query <text>] [--limit <n>]` — list captured artifacts (report/inventory/meta/raw) with ids.
+- `competition sessions [--query <text>] [--limit <n>] [--offset <n>]` — list research sessions, newest first. The result includes `total`, `limit`, `offset`, and `hasMore` so callers can tell when results are truncated and page with `--offset`.
+- `competition reports [--session <id>] [--query <text>] [--limit <n>] [--offset <n>]` — list captured artifacts (report/inventory/meta/raw) with ids. Same `total`/`limit`/`offset`/`hasMore` pagination fields as `sessions`.
 - `competition report --session <id> --artifact <id>` — return one artifact's full content (Markdown or JSON).
-- `competition research --product <name> [--session <id>] [--provider <p>] [--model <m>]` — start a detached research run; returns a `sessionId`/`runId` immediately, then poll `sessions`/`reports` for results.
+- `competition research --product <name> [--session <id>] [--provider <p>] [--model <m>]` — start a detached research run. The skill, provider, and model are validated **before** returning, so a `ok: true` response means the run actually started; an unavailable provider returns `ok: false` instead. Returns a `sessionId`/`runId` immediately, then poll `sessions`/`reports` for results.
 
 Each command maps to an HTTP handler at `/tutti/cli/<command>` declared in
-[`tutti.cli.json`](tutti.cli.json). Handlers return the `CliCommandOutput`
-envelope (`{ "kind": "json", "value": … }`).
+[`tutti.cli.json`](tutti.cli.json). Handlers always return the `CliCommandOutput`
+envelope (`{ "kind": "json", "value": … }`) — including request-validation and
+business errors, which come back as `{ "kind": "json", "value": { "ok": false, "error": … } }`
+so app-to-app `--json` callers get a stable shape.
 
 ## HTTP API
 
@@ -42,7 +44,7 @@ envelope (`{ "kind": "json", "value": … }`).
 - `GET /api/sessions/:id/artifacts/:artifactId/content`: read a captured artifact (report.md etc.)
 - `GET /api/agent/stream` (WebSocket): run a research turn; `{type:"start", sessionId, prompt, provider, model}` / `{type:"cancel", runId}`
 - `POST /tutti/references/list`: list captured research artifacts as Tutti references (sessions as groups)
-- `POST /tutti/references/search`: recursive, relevance-ranked search across every session's artifacts
+- `POST /tutti/references/search`: recursive search across every session's artifacts — matches the query against each file's own name (relevance-ranked), supports `filters` by global file-type category (`image`/`video`/`document`/`webpage`/`other`), and allows filter-only search (empty `query` + non-empty `filters`, ordered by recency) with `cursor`/`nextCursor` pagination
 - `POST /tutti/cli/*`: Tutti CLI capability handlers (see the `competition` scope above)
 
 ## Package validation

@@ -188,9 +188,29 @@ export const referenceListResponseSchema = z.object({
   nextCursor: z.string().nullable().optional(),
 });
 
-/** Recursive search request (POST /tutti/references/search). */
+/**
+ * Global file-type categories the references search box can filter by. Tutti
+ * maps file extensions into these buckets; an app receives the bucket ids and
+ * returns only references whose own name falls into one of them (OR semantics).
+ */
+export const referenceFileTypeFilterSchema = z.enum([
+  "image",
+  "video",
+  "document",
+  "webpage",
+  "other",
+]);
+
+/**
+ * Recursive search request (POST /tutti/references/search). Per the Tutti
+ * references search contract, `query` and `filters` combine and either alone is
+ * a valid query: `query` may be empty when `filters` is non-empty ("filter-only"
+ * search), in which case all references matching the filters are returned,
+ * ordered by recency.
+ */
 export const referenceSearchRequestSchema = z.object({
-  query: z.string().min(1),
+  query: z.string().default(""),
+  filters: z.array(referenceFileTypeFilterSchema).optional(),
   limit: z.number().int().min(1).max(50).optional(),
   cursor: z.string().optional().nullable(),
   kinds: z.array(z.literal("file")).optional(),
@@ -215,12 +235,14 @@ export const cliStatusRequestSchema = z.object({}).passthrough();
 export const cliSessionsRequestSchema = z.object({
   query: z.string().optional(),
   limit: z.number().int().min(1).max(100).optional(),
+  offset: z.number().int().min(0).optional(),
 });
 
 export const cliReportsRequestSchema = z.object({
   session: z.string().optional(),
   query: z.string().optional(),
   limit: z.number().int().min(1).max(200).optional(),
+  offset: z.number().int().min(0).optional(),
 });
 
 export const cliReportRequestSchema = z.object({
@@ -292,6 +314,7 @@ export type SessionMessagesResponse = z.infer<typeof sessionMessagesResponseSche
 export type ReferenceListRequest = z.infer<typeof referenceListRequestSchema>;
 export type ReferenceListResponse = z.infer<typeof referenceListResponseSchema>;
 export type ReferenceSearchRequest = z.infer<typeof referenceSearchRequestSchema>;
+export type ReferenceFileTypeFilter = z.infer<typeof referenceFileTypeFilterSchema>;
 export type CliStatusRequest = z.infer<typeof cliStatusRequestSchema>;
 export type CliSessionsRequest = z.infer<typeof cliSessionsRequestSchema>;
 export type CliReportsRequest = z.infer<typeof cliReportsRequestSchema>;

@@ -6,6 +6,7 @@ dist/
 build/
 .next/
 *.tsbuildinfo
+.vite/
 
 # Runtime artifacts — durable app data (sessions, reports, runtime) lives under
 # generated/ during development but is never committed (aligned with

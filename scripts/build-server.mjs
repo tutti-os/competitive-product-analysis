@@ -34,8 +34,16 @@ await build({
 // The product-swipefile skill is materialized into each run cwd at runtime, so
 // it must ship as plain files next to the server bundle. config.ts resolves it
 // relative to the running server file.
+//
+// Skip any `assets/` directory: the runtime skill loader (skill-loader.ts)
+// only materializes SKILL.md + references/ + scripts/ + run.py and explicitly
+// skips assets/, so the skill README's example images (~6.5MB) are dead weight
+// in the package. Excluding them keeps the runtime package small.
 await cp(
   path.join(serverDir, "skills"),
   path.join(outDir, "skills"),
-  { recursive: true },
+  {
+    recursive: true,
+    filter: (source) => !source.split(path.sep).includes("assets"),
+  },
 );

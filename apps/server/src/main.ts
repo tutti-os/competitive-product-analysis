@@ -20,8 +20,13 @@ import {
 
 import { APP_ID, APP_NAME, APP_VERSION } from "./app-meta.js";
 import { createRuntimeConfig } from "./config.js";
-import { detectAgentProviders, pickDefaultProvider } from "./domains/agent-service.js";
 import {
+  detectAgentProviders,
+  pickDefaultProvider,
+  warmAgentProviders,
+} from "./domains/agent-service.js";
+import {
+  cliError,
   cliGetReport,
   cliListReports,
   cliListSessions,
@@ -43,6 +48,11 @@ const researchRuns = new ResearchRunService(runtimeConfig, store, provider);
 // Heal state left behind by a previous process before serving traffic: recover
 // sessions missing from the index and demote runs stuck in "running".
 await store.reconcileOnStartup().catch(() => undefined);
+
+// Warm provider detection in the background (non-blocking) so the first
+// app-to-app `status`/`research` precheck answers from cache rather than paying
+// the multi-second detect cost that previously pushed `status` near its timeout.
+warmAgentProviders();
 
 await app.register(fastifyWebsocket);
 
@@ -207,7 +217,7 @@ app.post(API_ROUTES.referencesSearch, async (request, reply) => {
 app.post(API_ROUTES.cliStatus, async (request, reply) => {
   const result = cliStatusRequestSchema.safeParse(request.body ?? {});
   if (!result.success) {
-    return reply.status(400).send({ error: "invalid_cli_request", details: result.error.flatten() });
+    return reply.send(cliError("invalid_cli_request", { details: result.error.flatten() }));
   }
   return cliStatus(runtimeConfig, store);
 });
@@ -215,7 +225,7 @@ app.post(API_ROUTES.cliStatus, async (request, reply) => {
 app.post(API_ROUTES.cliSessions, async (request, reply) => {
   const result = cliSessionsRequestSchema.safeParse(request.body ?? {});
   if (!result.success) {
-    return reply.status(400).send({ error: "invalid_cli_request", details: result.error.flatten() });
+    return reply.send(cliError("invalid_cli_request", { details: result.error.flatten() }));
   }
   return cliListSessions(result.data, store);
 });
@@ -223,7 +233,7 @@ app.post(API_ROUTES.cliSessions, async (request, reply) => {
 app.post(API_ROUTES.cliReports, async (request, reply) => {
   const result = cliReportsRequestSchema.safeParse(request.body ?? {});
   if (!result.success) {
-    return reply.status(400).send({ error: "invalid_cli_request", details: result.error.flatten() });
+    return reply.send(cliError("invalid_cli_request", { details: result.error.flatten() }));
   }
   return cliListReports(result.data, store);
 });
@@ -231,7 +241,7 @@ app.post(API_ROUTES.cliReports, async (request, reply) => {
 app.post(API_ROUTES.cliReport, async (request, reply) => {
   const result = cliReportRequestSchema.safeParse(request.body ?? {});
   if (!result.success) {
-    return reply.status(400).send({ error: "invalid_cli_request", details: result.error.flatten() });
+    return reply.send(cliError("invalid_cli_request", { details: result.error.flatten() }));
   }
   return cliGetReport(result.data, store);
 });
@@ -239,9 +249,9 @@ app.post(API_ROUTES.cliReport, async (request, reply) => {
 app.post(API_ROUTES.cliResearch, async (request, reply) => {
   const result = cliResearchRequestSchema.safeParse(request.body ?? {});
   if (!result.success) {
-    return reply.status(400).send({ error: "invalid_cli_request", details: result.error.flatten() });
+    return reply.send(cliError("invalid_cli_request", { details: result.error.flatten() }));
   }
-  return cliStartResearch(result.data, store, researchRuns);
+  return cliStartResearch(result.data, runtimeConfig, store, researchRuns);
 });
 
 if (runtimeConfig.paths.webDistDir) {

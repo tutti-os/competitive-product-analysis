@@ -1,4 +1,5 @@
 import type {
+  AgentProviderSummary,
   CliCommandOutput,
   CliReportRequest,
   CliReportsRequest,
@@ -22,6 +23,18 @@ import { probeTuttiCli } from "../runtimes/tutti-cli.js";
  */
 
 const json = (value: unknown): CliCommandOutput => ({ kind: "json", value });
+
+/**
+ * Error envelope for the CLI surface. Business errors here and request
+ * validation failures in `main.ts` both return this shape, so every
+ * `/tutti/cli/*` response — success or failure — is a stable `CliCommandOutput`
+ * (`{ kind: "json", value: { ok: false, error, ... } }`) for app-to-app `--json`
+ * callers rather than a bare error body.
+ */
+export const cliError = (
+  error: string,
+  extra?: Record<string, unknown>,
+): CliCommandOutput => json({ ok: false, error, ...(extra ?? {}) });
 
 /** Runtime + provider + ecosystem health, suitable for an app/agent precheck. */
 export async function cliStatus(
@@ -64,10 +77,17 @@ export async function cliListSessions(
         (session.productName?.toLowerCase().includes(query) ?? false),
     );
   }
-  const limited = sessions.slice(0, request.limit ?? 50);
+  const limit = request.limit ?? 50;
+  const offset = request.offset ?? 0;
+  const total = sessions.length;
+  const limited = sessions.slice(offset, offset + limit);
   return json({
     ok: true,
     count: limited.length,
+    total,
+    limit,
+    offset,
+    hasMore: offset + limited.length < total,
     sessions: limited.map((session) => ({
       id: session.id,
       title: session.title,
@@ -89,12 +109,13 @@ export async function cliListReports(
 ): Promise<CliCommandOutput> {
   const query = request.query?.trim().toLowerCase();
   const limit = request.limit ?? 50;
+  const offset = request.offset ?? 0;
 
   let sessions: ResearchSession[];
   if (request.session) {
     const session = await store.getSession(request.session);
     if (!session) {
-      return json({ ok: false, error: "session_not_found", session: request.session });
+      return cliError("session_not_found", { session: request.session });
     }
     sessions = [session];
   } else {
@@ -129,8 +150,17 @@ export async function cliListReports(
     (left, right) =>
       Date.parse(String(right.createdAt)) - Date.parse(String(left.createdAt)),
   );
-  const limited = reports.slice(0, limit);
-  return json({ ok: true, count: limited.length, reports: limited });
+  const total = reports.length;
+  const limited = reports.slice(offset, offset + limit);
+  return json({
+    ok: true,
+    count: limited.length,
+    total,
+    limit,
+    offset,
+    hasMore: offset + limited.length < total,
+    reports: limited,
+  });
 }
 
 /** Return one artifact's content (e.g. report.md) by session + artifact id. */
@@ -140,13 +170,11 @@ export async function cliGetReport(
 ): Promise<CliCommandOutput> {
   const session = await store.getSession(request.session);
   if (!session) {
-    return json({ ok: false, error: "session_not_found", session: request.session });
+    return cliError("session_not_found", { session: request.session });
   }
   const result = await store.readArtifactContent(request.session, request.artifact);
   if (!result) {
-    return json({
-      ok: false,
-      error: "artifact_not_found",
+    return cliError("artifact_not_found", {
       session: request.session,
       artifact: request.artifact,
     });
@@ -167,24 +195,76 @@ export async function cliGetReport(
   });
 }
 
-/** Kick off a detached research run; the caller polls sessions/reports later. */
+/**
+ * Kick off a detached research run; the caller polls sessions/reports later.
+ *
+ * The detached run validates the skill/provider asynchronously, so we preflight
+ * those same checks here and only return `ok: true` once the run is actually
+ * runnable. Otherwise an app/agent caller would receive a success envelope for a
+ * run that then fails in the background (e.g. an unknown or unauthenticated
+ * provider) — a misleading signal we observed in review.
+ */
 export async function cliStartResearch(
   request: CliResearchRequest,
+  config: AppRuntimeConfig,
   store: SessionStore,
   researchRuns: ResearchRunService,
 ): Promise<CliCommandOutput> {
   const product = request.product.trim();
   if (!product) {
-    return json({ ok: false, error: "empty_product" });
+    return cliError("empty_product", {
+      message: "Provide a product name or research prompt via --product.",
+    });
+  }
+
+  // Validate an explicit session before paying for provider detection.
+  if (request.session) {
+    const existing = await store.getSession(request.session);
+    if (!existing) {
+      return cliError("session_not_found", { session: request.session });
+    }
+  }
+
+  if (!config.paths.skillDir) {
+    return cliError("skill_unavailable", {
+      message: "The product-swipefile research skill is not bundled in this runtime.",
+    });
+  }
+
+  const providers = await detectAgentProviders();
+  const requested = request.provider?.trim();
+  const provider = requested
+    ? providers.find((item) => item.provider === requested)
+    : providers.find((item) => item.provider === pickDefaultProvider(providers));
+
+  if (requested && !provider) {
+    return cliError("provider_unknown", {
+      provider: requested,
+      available: providers.map((item) => item.provider),
+      message: `Unknown provider "${requested}". Run \`competition status\` to see available providers.`,
+    });
+  }
+  if (!provider || provider.status !== "ready") {
+    return cliError("provider_unavailable", {
+      provider: provider?.provider ?? requested ?? null,
+      message:
+        provider?.reason ??
+        "No ready local agent provider. Install and sign in to Claude or Codex, then retry.",
+    });
+  }
+
+  const model = request.model?.trim();
+  if (model && provider.models.length > 0 && !providerHasModel(provider, model)) {
+    return cliError("model_unavailable", {
+      provider: provider.provider,
+      model,
+      models: provider.models,
+      message: `Model "${model}" is not available for ${provider.provider}.`,
+    });
   }
 
   let sessionId = request.session;
-  if (sessionId) {
-    const existing = await store.getSession(sessionId);
-    if (!existing) {
-      return json({ ok: false, error: "session_not_found", session: sessionId });
-    }
-  } else {
+  if (!sessionId) {
     const created = await store.createSession({});
     sessionId = created.id;
   }
@@ -193,8 +273,8 @@ export async function cliStartResearch(
     type: "start",
     sessionId,
     prompt: product,
-    ...(request.provider ? { provider: request.provider } : {}),
-    ...(request.model ? { model: request.model } : {}),
+    provider: provider.provider,
+    ...(model ? { model } : {}),
   });
 
   return json({
@@ -202,7 +282,16 @@ export async function cliStartResearch(
     status: "running",
     sessionId,
     runId,
+    provider: provider.provider,
     message:
       "Research run started. Poll `competition sessions` or `competition reports` for results.",
   });
+}
+
+/** Whether a model id matches one the provider advertises (with/without its prefix). */
+function providerHasModel(provider: AgentProviderSummary, model: string): boolean {
+  const prefix = `${provider.provider}:`;
+  const strip = (value: string) => (value.startsWith(prefix) ? value.slice(prefix.length) : value);
+  const target = strip(model);
+  return provider.models.some((candidate) => candidate === model || strip(candidate) === target);
 }
