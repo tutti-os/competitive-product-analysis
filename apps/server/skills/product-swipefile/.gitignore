@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# macOS
+.DS_Store
+
+# Editor
+.idea/
+.vscode/
+
+# Local run artifacts (reports/inventory live in ~/.config, not the repo)
+runs/
+*.local.json

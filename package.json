@@ -1,0 +1,23 @@
+{
+  "name": "product-competition",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "license": "Apache-2.0",
+  "packageManager": "pnpm@10.26.2",
+  "scripts": {
+    "dev": "pnpm --filter @product-competition/shared build && pnpm --parallel --filter @product-competition/server --filter @product-competition/web dev",
+    "dev:web": "pnpm --filter @product-competition/web dev",
+    "dev:server": "pnpm --filter @product-competition/server dev",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "check:i18n": "node scripts/check-i18n.mjs",
+    "check": "pnpm run typecheck && pnpm run check:i18n",
+    "package:tutti": "node scripts/package-tutti-app.mjs",
+    "serve:catalog": "node scripts/serve-local-catalog.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.0",
+    "typescript": "^5.9.3"
+  }
+}

@@ -1,0 +1,29 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+.next/
+*.tsbuildinfo
+
+# Runtime artifacts — durable app data (sessions, reports, runtime) lives under
+# generated/ during development but is never committed (aligned with
+# ai-media-canvas: data stays local on disk, excluded from git).
+generated/
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+*.swp
