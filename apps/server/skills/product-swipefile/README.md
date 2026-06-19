@@ -21,7 +21,7 @@
 
 ## 跑出来的案例给大伙瞧瞧（最终你跑出来的结果 & 内容结构类似）
 
-![Lovart 调研报告示例](assets/lovart_report.png)
+![Lovart 调研报告示例](assets/lovart_report.webp)
 
 ## 安装
 
