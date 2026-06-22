@@ -38,13 +38,10 @@
           },
           "limit": {
             "type": "integer",
-            "minimum": 1,
-            "maximum": 100,
             "description": "Maximum number of sessions to return (default 50)."
           },
           "offset": {
             "type": "integer",
-            "minimum": 0,
             "description": "Number of sessions to skip from the start for pagination (default 0)."
           }
         }
@@ -77,13 +74,10 @@
           },
           "limit": {
             "type": "integer",
-            "minimum": 1,
-            "maximum": 200,
             "description": "Maximum number of artifacts to return (default 50)."
           },
           "offset": {
             "type": "integer",
-            "minimum": 0,
             "description": "Number of artifacts to skip from the start for pagination (default 0)."
           }
         }
@@ -108,12 +102,10 @@
         "properties": {
           "session": {
             "type": "string",
-            "minLength": 1,
             "description": "Session id that owns the artifact."
           },
           "artifact": {
             "type": "string",
-            "minLength": 1,
             "description": "Artifact id from the reports command."
           }
         },
@@ -139,7 +131,6 @@
         "properties": {
           "product": {
             "type": "string",
-            "minLength": 1,
             "description": "Product to research, or a full research prompt."
           },
           "session": {
