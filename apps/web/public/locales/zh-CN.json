@@ -35,7 +35,7 @@
   "chat.hint": "agent 会运行 product-swipefile skill，report.md 与证据会保存到本次对话。",
   "chat.send": "发送",
   "chat.stop": "停止",
-  "chat.pending": "处理中...",
+  "chat.pending": "agent 正在思考...",
   "chat.thinking.active": "思考中...",
   "chat.thinking.done": "思考过程",
   "chat.tool.running": "运行中",

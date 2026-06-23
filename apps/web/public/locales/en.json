@@ -35,7 +35,7 @@
   "chat.hint": "The agent runs the product-swipefile skill. report.md and evidence are saved to this conversation.",
   "chat.send": "Send",
   "chat.stop": "Stop",
-  "chat.pending": "Working...",
+  "chat.pending": "Agent is thinking...",
   "chat.thinking.active": "Thinking...",
   "chat.thinking.done": "Thought process",
   "chat.tool.running": "running",

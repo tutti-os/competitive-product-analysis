@@ -22,6 +22,12 @@ export const ChatMessage = memo(function ChatMessage(props: {
   const isEmpty =
     message.contentBlocks.length === 0 ||
     message.contentBlocks.every((block) => block.type === "text" && block.text.trim() === "");
+  const hasActiveProgress = message.contentBlocks.some(
+    (block) =>
+      (block.type === "thinking" && !block.done && block.text.trim() !== "") ||
+      (block.type === "tool" && block.status === "running"),
+  );
+  const showPending = props.streaming && (isEmpty || !hasActiveProgress);
 
   return (
     <div className="msg msg-assistant">
@@ -29,10 +35,10 @@ export const ChatMessage = memo(function ChatMessage(props: {
         <Bot size={16} />
       </div>
       <div className="msg-body">
-        {isEmpty && props.streaming ? <PendingIndicator /> : null}
         {message.contentBlocks.map((block, index) => (
           <BlockView key={index} block={block} streaming={props.streaming} />
         ))}
+        {showPending ? <PendingIndicator /> : null}
       </div>
     </div>
   );
