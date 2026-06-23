@@ -3,7 +3,7 @@
   "appId": "product-competition",
   "version": "0.2.0",
   "name": "Competitive Analysis",
-  "description": "Chat with a local agent to run evidence-backed product teardowns and keep every report in one place.",
+  "description": "Compare competitor positioning, features, and UX to support product decisions.",
   "icon": {
     "type": "asset",
     "src": "icon.svg"
