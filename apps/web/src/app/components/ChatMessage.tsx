@@ -81,7 +81,9 @@ function ToolBlock(props: { block: Extract<ContentBlock, { type: "tool" }> }) {
   const [open, setOpen] = useState(false);
   const sections = toolDetailSections(block, t);
   const hasDetails = sections.length > 0;
-  const compactSummary = compactToolSummary(block.summary);
+  const isCommandTool = block.name.toLowerCase() === "bash";
+  const compactSummary = isCommandTool ? undefined : compactToolSummary(block.summary);
+  const displayName = toolDisplayName(block.name, t);
   const content = (
     <>
       <span className="tool-icon">
@@ -94,10 +96,10 @@ function ToolBlock(props: { block: Extract<ContentBlock, { type: "tool" }> }) {
         )}
       </span>
       <Wrench size={12} className="tool-wrench" />
-      <span className="tool-name">{block.name}</span>
+      <span className="tool-name">{displayName}</span>
+      <span className={`tool-status-label tool-status-${block.status}`}>{toolStatusLabel(block.status, t)}</span>
       {compactSummary ? <span className="tool-separator">·</span> : null}
       {compactSummary ? <span className="tool-summary">{compactSummary}</span> : null}
-      {block.status === "running" ? <span className="tool-state">{t("chat.tool.running")}</span> : null}
       {hasDetails ? (
         <span className="tool-detail-hint">
           {open ? t("chat.tool.hideDetails") : t("chat.tool.viewDetails")}
@@ -129,7 +131,7 @@ function ToolBlock(props: { block: Extract<ContentBlock, { type: "tool" }> }) {
 
 type DetailSection =
   | { key: string; label: string; kind: "json"; value: unknown }
-  | { key: string; label: string; kind: "text"; value: string };
+  | { key: string; label: string; kind: "text"; tone?: "terminal"; value: string };
 
 function ToolDetailSection(props: { section: DetailSection }) {
   const { t } = useTranslation();
@@ -139,7 +141,9 @@ function ToolDetailSection(props: { section: DetailSection }) {
     return (
       <div className="tool-detail-section">
         <div className="tool-detail-label">{section.label}</div>
-        <pre className="tool-detail-text">{section.value}</pre>
+        <pre className={`tool-detail-text ${section.tone === "terminal" ? "is-terminal" : ""}`}>
+          {section.value}
+        </pre>
       </div>
     );
   }
@@ -270,6 +274,35 @@ function toolDetailSections(
   block: Extract<ContentBlock, { type: "tool" }>,
   t: (key: string) => string,
 ): DetailSection[] {
+  if (block.name.toLowerCase() === "bash") {
+    const command = extractCommand(block.input);
+    const commandSections: DetailSection[] = [];
+    if (command) {
+      commandSections.push({
+        key: "command",
+        kind: "text",
+        label: t("chat.tool.command"),
+        tone: "terminal",
+        value: command,
+      });
+    } else if (block.input !== undefined) {
+      commandSections.push(toDetailSection("input", t("chat.tool.input"), block.input));
+    }
+    if (block.output !== undefined) {
+      commandSections.push(toDetailSection("output", t("chat.tool.output"), block.output));
+    }
+    if (block.summary) {
+      commandSections.push({
+        key: "command-output",
+        kind: "text",
+        label: t("chat.tool.commandOutput"),
+        tone: "terminal",
+        value: block.summary,
+      });
+    }
+    return commandSections;
+  }
+
   const sections: DetailSection[] = [];
   if (block.input !== undefined) {
     sections.push(toDetailSection("input", t("chat.tool.input"), block.input));
@@ -281,6 +314,53 @@ function toolDetailSections(
     sections.push(toDetailSection("summary", t("chat.tool.summary"), block.summary));
   }
   return sections;
+}
+
+function extractCommand(value: unknown): string | undefined {
+  if (typeof value === "string") return value;
+  if (!value || typeof value !== "object") return undefined;
+  const record = value as Record<string, unknown>;
+  for (const key of ["command", "cmd", "script"]) {
+    if (typeof record[key] === "string" && record[key].trim()) return record[key];
+  }
+  if (Array.isArray(record.args) && record.args.every((item) => typeof item === "string")) {
+    return record.args.join(" ");
+  }
+  return undefined;
+}
+
+function toolDisplayName(name: string, t: (key: string) => string): string {
+  switch (name.toLowerCase()) {
+    case "bash":
+      return t("chat.tool.name.bash");
+    case "read":
+      return t("chat.tool.name.read");
+    case "write":
+      return t("chat.tool.name.write");
+    case "edit":
+      return t("chat.tool.name.edit");
+    case "multiedit":
+      return t("chat.tool.name.multiEdit");
+    case "websearch":
+      return t("chat.tool.name.webSearch");
+    case "webfetch":
+      return t("chat.tool.name.webFetch");
+    case "todowrite":
+      return t("chat.tool.name.todoWrite");
+    default:
+      return name;
+  }
+}
+
+function toolStatusLabel(status: Extract<ContentBlock, { type: "tool" }>["status"], t: (key: string) => string) {
+  switch (status) {
+    case "running":
+      return t("chat.tool.status.running");
+    case "failed":
+      return t("chat.tool.status.failed");
+    case "completed":
+      return t("chat.tool.status.completed");
+  }
 }
 
 function toDetailSection(key: string, label: string, value: unknown): DetailSection {
