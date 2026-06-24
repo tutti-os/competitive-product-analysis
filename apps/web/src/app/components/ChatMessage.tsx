@@ -206,6 +206,19 @@ function friendlyRowsFromValue(value: unknown, t: (key: string) => string): Frie
     }
   }
 
+  if (record.opencli && typeof record.opencli === "object" && !Array.isArray(record.opencli)) {
+    rows.push({
+      label: t("chat.tool.field.toolState"),
+      value: formatOpencliState(record.opencli as Record<string, unknown>, t),
+    });
+  }
+  if (Array.isArray(record.suggested_platforms)) {
+    rows.push({
+      label: t("chat.tool.field.coverage"),
+      value: t("chat.tool.value.platformCount").replace("{count}", String(record.suggested_platforms.length)),
+    });
+  }
+
   const fileKeys = Object.keys(record).filter((key) => key.endsWith("_path") && typeof record[key] === "string");
   if (fileKeys.length > 0) {
     rows.push({
@@ -265,6 +278,13 @@ function formatFollowUpValue(value: string, t: (key: string) => string): string 
   return value;
 }
 
+function formatOpencliState(opencli: Record<string, unknown>, t: (key: string) => string): string {
+  if (typeof opencli.status === "string") return formatStatusValue(opencli.status, t);
+  if (opencli.available === true) return t("chat.tool.status.available");
+  if (opencli.available === false) return t("chat.tool.status.unavailable");
+  return t("chat.tool.value.object");
+}
+
 function formatFriendlyValue(value: unknown, t: (key: string) => string): string {
   if (value === true) return t("common.yes");
   if (value === false) return t("common.no");
@@ -290,6 +310,8 @@ function formatStatusValue(value: string, t: (key: string) => string): string {
       return t("chat.tool.status.running");
     case "unavailable":
       return t("chat.tool.status.unavailable");
+    case "missing":
+      return t("chat.tool.status.missing");
     case "blocked":
       return t("chat.tool.status.blocked");
     case "login_required":
@@ -434,7 +456,7 @@ function toolSummaryPreview(
     }
     if (record.opencli && typeof record.opencli === "object") {
       const opencli = record.opencli as Record<string, unknown>;
-      return `${t("chat.tool.field.opencli")} · ${formatFriendlyValue(opencli.available, t)}`;
+      return `${t("chat.tool.field.opencli")} · ${formatOpencliState(opencli, t)}`;
     }
     if (record.product) return String(record.product);
     const fileKeys = Object.keys(record).filter((key) => key.endsWith("_path") || key.endsWith("_dir"));
