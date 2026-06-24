@@ -120,14 +120,7 @@ function ToolBlock(props: { block: Extract<ContentBlock, { type: "tool" }> }) {
       </CollapsibleTrigger>
       <CollapsibleContent className="tool-detail-panel">
         {sections.map((section) => (
-          <div className="tool-detail-section" key={section.key}>
-            <div className="tool-detail-label">{section.label}</div>
-            {section.kind === "json" ? (
-              <JsonDetail value={section.value} />
-            ) : (
-              <pre className="tool-detail-text">{section.value}</pre>
-            )}
-          </div>
+          <ToolDetailSection key={section.key} section={section} />
         ))}
       </CollapsibleContent>
     </Collapsible>
@@ -137,6 +130,141 @@ function ToolBlock(props: { block: Extract<ContentBlock, { type: "tool" }> }) {
 type DetailSection =
   | { key: string; label: string; kind: "json"; value: unknown }
   | { key: string; label: string; kind: "text"; value: string };
+
+function ToolDetailSection(props: { section: DetailSection }) {
+  const { t } = useTranslation();
+  const [rawOpen, setRawOpen] = useState(false);
+  const { section } = props;
+  if (section.kind === "text") {
+    return (
+      <div className="tool-detail-section">
+        <div className="tool-detail-label">{section.label}</div>
+        <pre className="tool-detail-text">{section.value}</pre>
+      </div>
+    );
+  }
+
+  const rows = friendlyRowsFromValue(section.value, t);
+  return (
+    <div className="tool-detail-section">
+      <div className="tool-detail-label">{section.label}</div>
+      {rows.length > 0 ? (
+        <dl className="tool-friendly-data">
+          {rows.map((row) => (
+            <div className="tool-friendly-row" key={row.label}>
+              <dt>{row.label}</dt>
+              <dd>{row.value}</dd>
+            </div>
+          ))}
+        </dl>
+      ) : null}
+      <Collapsible open={rawOpen} onOpenChange={setRawOpen} className="tool-raw-data">
+        <CollapsibleTrigger asChild>
+          <button type="button" className="tool-raw-trigger">
+            {rawOpen ? t("chat.tool.hideRaw") : t("chat.tool.showRaw")}
+            <ChevronRight size={13} className="tool-caret" />
+          </button>
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <JsonDetail value={section.value} />
+        </CollapsibleContent>
+      </Collapsible>
+    </div>
+  );
+}
+
+type FriendlyRow = { label: string; value: string };
+
+function friendlyRowsFromValue(value: unknown, t: (key: string) => string): FriendlyRow[] {
+  if (Array.isArray(value)) {
+    return [{ label: t("chat.tool.field.items"), value: t("chat.tool.value.itemCount").replace("{count}", String(value.length)) }];
+  }
+  if (!value || typeof value !== "object") {
+    return [{ label: t("chat.tool.field.value"), value: formatFriendlyValue(value, t) }];
+  }
+
+  const record = value as Record<string, unknown>;
+  const rows: FriendlyRow[] = [];
+  const fieldMap: Array<[string, string]> = [
+    ["platform", t("chat.tool.field.platform")],
+    ["purpose", t("chat.tool.field.purpose")],
+    ["query", t("chat.tool.field.query")],
+    ["command", t("chat.tool.field.command")],
+    ["status", t("chat.tool.field.status")],
+    ["exit_code", t("chat.tool.field.exitCode")],
+    ["hit_summary", t("chat.tool.field.hitSummary")],
+    ["follow_up", t("chat.tool.field.followUp")],
+    ["dry_run", t("chat.tool.field.dryRun")],
+  ];
+
+  for (const [key, label] of fieldMap) {
+    if (record[key] !== undefined && record[key] !== "") {
+      rows.push({ label, value: formatFriendlyValue(record[key], t) });
+    }
+  }
+
+  const fileKeys = Object.keys(record).filter((key) => key.endsWith("_path") && typeof record[key] === "string");
+  if (fileKeys.length > 0) {
+    rows.push({
+      label: t("chat.tool.field.files"),
+      value: t("chat.tool.value.fileCount").replace("{count}", String(fileKeys.length)),
+    });
+  }
+  if (Array.isArray(record.items)) {
+    rows.push({
+      label: t("chat.tool.field.items"),
+      value: t("chat.tool.value.itemCount").replace("{count}", String(record.items.length)),
+    });
+  }
+  if (Array.isArray(record.files)) {
+    rows.push({
+      label: t("chat.tool.field.files"),
+      value: record.files.map((item) => String(item)).join(", "),
+    });
+  }
+  if (rows.length === 0) {
+    rows.push({
+      label: t("chat.tool.field.record"),
+      value: t("chat.tool.value.fieldCount").replace("{count}", String(Object.keys(record).length)),
+    });
+  }
+
+  return rows;
+}
+
+function formatFriendlyValue(value: unknown, t: (key: string) => string): string {
+  if (value === true) return t("common.yes");
+  if (value === false) return t("common.no");
+  if (value === null) return t("common.none");
+  if (typeof value === "number") return String(value);
+  if (typeof value === "string") {
+    return formatStatusValue(value, t);
+  }
+  if (Array.isArray(value)) return t("chat.tool.value.itemCount").replace("{count}", String(value.length));
+  if (typeof value === "object") return t("chat.tool.value.object");
+  return String(value);
+}
+
+function formatStatusValue(value: string, t: (key: string) => string): string {
+  switch (value) {
+    case "ok":
+      return t("chat.tool.status.ok");
+    case "completed":
+      return t("chat.tool.status.completed");
+    case "failed":
+      return t("chat.tool.status.failed");
+    case "running":
+      return t("chat.tool.status.running");
+    case "unavailable":
+      return t("chat.tool.status.unavailable");
+    case "blocked":
+      return t("chat.tool.status.blocked");
+    case "login_required":
+      return t("chat.tool.status.login_required");
+    default:
+      return value;
+  }
+}
 
 function toolDetailSections(
   block: Extract<ContentBlock, { type: "tool" }>,

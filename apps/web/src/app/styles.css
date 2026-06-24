@@ -679,8 +679,62 @@ button {
   overflow-wrap: anywhere;
 }
 
-.tool-json-view {
+.tool-friendly-data {
+  display: grid;
+  gap: 6px;
   margin: 8px 10px 10px;
+}
+
+.tool-friendly-row {
+  display: grid;
+  grid-template-columns: minmax(84px, 0.28fr) minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.tool-friendly-row dt,
+.tool-friendly-row dd {
+  margin: 0;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.tool-friendly-row dt {
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.tool-friendly-row dd {
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.tool-raw-data {
+  margin: 0 10px 10px;
+}
+
+.tool-raw-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-faint);
+  font-size: 12px;
+}
+
+.tool-raw-data[data-state="open"] .tool-caret {
+  transform: rotate(90deg);
+}
+
+.tool-json-view {
+  margin-top: 8px;
   padding: 9px;
   border-radius: 8px;
   border: 1px solid var(--border);
