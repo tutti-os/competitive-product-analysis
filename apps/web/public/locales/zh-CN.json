@@ -74,6 +74,7 @@
   "chat.tool.field.followUp": "后续处理",
   "chat.tool.field.dryRun": "模拟运行",
   "chat.tool.field.files": "本地文件",
+  "chat.tool.field.targetFile": "目标文件",
   "chat.tool.field.items": "结果",
   "chat.tool.field.value": "值",
   "chat.tool.field.record": "记录",

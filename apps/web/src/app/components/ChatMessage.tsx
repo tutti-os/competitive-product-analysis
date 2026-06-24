@@ -219,7 +219,16 @@ function friendlyRowsFromValue(value: unknown, t: (key: string) => string): Frie
     });
   }
 
-  const fileKeys = Object.keys(record).filter((key) => key.endsWith("_path") && typeof record[key] === "string");
+  if (typeof record.file_path === "string" && record.file_path) {
+    rows.push({
+      label: t("chat.tool.field.targetFile"),
+      value: compactPath(record.file_path),
+    });
+  }
+
+  const fileKeys = Object.keys(record).filter(
+    (key) => key !== "file_path" && key.endsWith("_path") && typeof record[key] === "string",
+  );
   if (fileKeys.length > 0) {
     rows.push({
       label: t("chat.tool.field.files"),
@@ -252,6 +261,13 @@ function formatRecordValue(key: string, value: unknown, t: (key: string) => stri
   if (key === "purpose" && typeof value === "string") return formatPurposeValue(value, t);
   if (key === "follow_up" && typeof value === "string") return formatFollowUpValue(value, t);
   return formatFriendlyValue(value, t);
+}
+
+function compactPath(value: string): string {
+  const normalized = value.replaceAll("\\", "/");
+  const parts = normalized.split("/").filter(Boolean);
+  if (parts.length <= 4) return normalized;
+  return `.../${parts.slice(-4).join("/")}`;
 }
 
 function formatPurposeValue(value: string, t: (key: string) => string): string {

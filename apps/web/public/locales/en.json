@@ -74,6 +74,7 @@
   "chat.tool.field.followUp": "Next step",
   "chat.tool.field.dryRun": "Dry run",
   "chat.tool.field.files": "Local files",
+  "chat.tool.field.targetFile": "Target file",
   "chat.tool.field.items": "Items",
   "chat.tool.field.value": "Value",
   "chat.tool.field.record": "Record",
