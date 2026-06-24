@@ -81,9 +81,8 @@ function ToolBlock(props: { block: Extract<ContentBlock, { type: "tool" }> }) {
   const [open, setOpen] = useState(false);
   const sections = toolDetailSections(block, t);
   const hasDetails = sections.length > 0;
-  const isCommandTool = block.name.toLowerCase() === "bash";
-  const compactSummary = isCommandTool ? undefined : compactToolSummary(block.summary);
-  const displayName = toolDisplayName(block.name, t);
+  const compactSummary = toolSummaryPreview(block, t);
+  const displayName = toolDisplayName(block, t);
   const content = (
     <>
       <span className="tool-icon">
@@ -203,7 +202,7 @@ function friendlyRowsFromValue(value: unknown, t: (key: string) => string): Frie
 
   for (const [key, label] of fieldMap) {
     if (record[key] !== undefined && record[key] !== "") {
-      rows.push({ label, value: formatFriendlyValue(record[key], t) });
+      rows.push({ label, value: formatRecordValue(key, record[key], t) });
     }
   }
 
@@ -236,6 +235,36 @@ function friendlyRowsFromValue(value: unknown, t: (key: string) => string): Frie
   return rows;
 }
 
+function formatRecordValue(key: string, value: unknown, t: (key: string) => string): string {
+  if (key === "purpose" && typeof value === "string") return formatPurposeValue(value, t);
+  if (key === "follow_up" && typeof value === "string") return formatFollowUpValue(value, t);
+  return formatFriendlyValue(value, t);
+}
+
+function formatPurposeValue(value: string, t: (key: string) => string): string {
+  switch (value) {
+    case "official and user voice":
+      return t("chat.tool.purpose.officialUserVoice");
+    case "creator coverage":
+      return t("chat.tool.purpose.creatorCoverage");
+    case "China creator coverage":
+      return t("chat.tool.purpose.chinaCreatorCoverage");
+    case "developer community coverage":
+      return t("chat.tool.purpose.developerCommunityCoverage");
+    case "launch history":
+      return t("chat.tool.purpose.launchHistory");
+    default:
+      return value;
+  }
+}
+
+function formatFollowUpValue(value: string, t: (key: string) => string): string {
+  if (value === "Record unavailable and use WebSearch/WebFetch fallback.") {
+    return t("chat.tool.followUp.webFallback");
+  }
+  return value;
+}
+
 function formatFriendlyValue(value: unknown, t: (key: string) => string): string {
   if (value === true) return t("common.yes");
   if (value === false) return t("common.no");
@@ -265,6 +294,8 @@ function formatStatusValue(value: string, t: (key: string) => string): string {
       return t("chat.tool.status.blocked");
     case "login_required":
       return t("chat.tool.status.login_required");
+    case "syntax_unknown":
+      return t("chat.tool.status.syntax_unknown");
     default:
       return value;
   }
@@ -292,13 +323,14 @@ function toolDetailSections(
       commandSections.push(toDetailSection("output", t("chat.tool.output"), block.output));
     }
     if (block.summary) {
-      commandSections.push({
+      const summarySection: Extract<DetailSection, { kind: "text" }> = {
         key: "command-output",
         kind: "text",
-        label: t("chat.tool.commandOutput"),
-        tone: "terminal",
+        label: bashSummaryLabel(block.summary, t),
+        ...(parseJson(block.summary) === undefined ? { tone: "terminal" as const } : {}),
         value: block.summary,
-      });
+      };
+      commandSections.push(toDetailSectionWithFallback(summarySection));
     }
     return commandSections;
   }
@@ -316,6 +348,14 @@ function toolDetailSections(
   return sections;
 }
 
+function toDetailSectionWithFallback(section: Extract<DetailSection, { kind: "text" }>): DetailSection {
+  const parsed = parseJson(section.value);
+  if (parsed !== undefined) {
+    return { key: section.key, label: section.label, kind: "json", value: parsed };
+  }
+  return section;
+}
+
 function extractCommand(value: unknown): string | undefined {
   if (typeof value === "string") return value;
   if (!value || typeof value !== "object") return undefined;
@@ -329,8 +369,12 @@ function extractCommand(value: unknown): string | undefined {
   return undefined;
 }
 
-function toolDisplayName(name: string, t: (key: string) => string): string {
-  switch (name.toLowerCase()) {
+function toolDisplayName(block: Extract<ContentBlock, { type: "tool" }>, t: (key: string) => string): string {
+  const toolName = block.name.toLowerCase();
+  if (toolName === "bash") {
+    return bashDisplayName(block.summary, t);
+  }
+  switch (toolName) {
     case "bash":
       return t("chat.tool.name.bash");
     case "read":
@@ -348,8 +392,68 @@ function toolDisplayName(name: string, t: (key: string) => string): string {
     case "todowrite":
       return t("chat.tool.name.todoWrite");
     default:
-      return name;
+      return block.name;
   }
+}
+
+function bashDisplayName(summary: string | undefined, t: (key: string) => string): string {
+  const parsed = summary ? parseJson(summary) : undefined;
+  if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+    const record = parsed as Record<string, unknown>;
+    if (record.platform || record.command) return t("chat.tool.name.collect");
+    if (record.opencli) return t("chat.tool.name.checkTool");
+    if (record.product && record.run_id) return t("chat.tool.name.createRun");
+    if (Object.keys(record).some((key) => key.endsWith("_path") || key.endsWith("_dir"))) {
+      return t("chat.tool.name.prepareFiles");
+    }
+  }
+  const trimmed = summary?.trim() ?? "";
+  if (/^---\s*\nname:/i.test(trimmed) || /^#\s+/m.test(trimmed) || /^#!\//.test(trimmed)) {
+    return t("chat.tool.name.read");
+  }
+  if (/(\.md|\.py|\.json|\.txt)(\n|$)/.test(trimmed) && trimmed.split(/\r?\n/).length > 1) {
+    return t("chat.tool.name.findFiles");
+  }
+  return t("chat.tool.name.bash");
+}
+
+function toolSummaryPreview(
+  block: Extract<ContentBlock, { type: "tool" }>,
+  t: (key: string) => string,
+): string | undefined {
+  if (!block.summary) return undefined;
+  if (block.name.toLowerCase() !== "bash") return compactToolSummary(block.summary);
+
+  const parsed = parseJson(block.summary);
+  if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+    const record = parsed as Record<string, unknown>;
+    if (record.platform) {
+      const platform = String(record.platform);
+      const status = typeof record.status === "string" ? formatStatusValue(record.status, t) : undefined;
+      return status ? `${platform} · ${status}` : platform;
+    }
+    if (record.opencli && typeof record.opencli === "object") {
+      const opencli = record.opencli as Record<string, unknown>;
+      return `${t("chat.tool.field.opencli")} · ${formatFriendlyValue(opencli.available, t)}`;
+    }
+    if (record.product) return String(record.product);
+    const fileKeys = Object.keys(record).filter((key) => key.endsWith("_path") || key.endsWith("_dir"));
+    if (fileKeys.length > 0) {
+      return t("chat.tool.value.fileCount").replace("{count}", String(fileKeys.length));
+    }
+    return t("chat.tool.value.fieldCount").replace("{count}", String(Object.keys(record).length));
+  }
+  return compactToolSummary(block.summary);
+}
+
+function bashSummaryLabel(summary: string | undefined, t: (key: string) => string): string {
+  if (!summary) return t("chat.tool.commandOutput");
+  if (parseJson(summary) !== undefined) return t("chat.tool.summary");
+  const trimmed = summary.trim();
+  if (/^---\s*\nname:/i.test(trimmed) || /^#\s+/m.test(trimmed) || /^#!\//.test(trimmed)) {
+    return t("chat.tool.fileContent");
+  }
+  return t("chat.tool.commandOutput");
 }
 
 function toolStatusLabel(status: Extract<ContentBlock, { type: "tool" }>["status"], t: (key: string) => string) {
