@@ -39,6 +39,11 @@
   "chat.thinking.active": "思考中...",
   "chat.thinking.done": "思考过程",
   "chat.tool.running": "运行中",
+  "chat.tool.viewDetails": "查看数据",
+  "chat.tool.hideDetails": "收起数据",
+  "chat.tool.input": "输入",
+  "chat.tool.output": "输出",
+  "chat.tool.summary": "摘要",
 
   "agent.pick": "选择 agent",
   "agent.none": "无可用 agent",

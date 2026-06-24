@@ -181,12 +181,15 @@ function toRuntimeStreamEvent(event: AgentEvent): RuntimeStreamEvent | null {
     return { type: "tool_call", id: event.id, name: event.name || "unknown_tool", input: event.input };
   }
   if (event.type === "tool_result") {
+    const toolResult = event as AgentEvent & { output?: unknown; result?: unknown; content?: unknown };
+    const output = toolResult.output ?? toolResult.result ?? toolResult.content;
     return {
       type: "tool_result",
       id: event.id,
       name: event.name || "unknown_tool",
       status: event.status,
       summary: event.summary,
+      ...(output !== undefined ? { output } : {}),
     };
   }
   if (event.type === "status") {

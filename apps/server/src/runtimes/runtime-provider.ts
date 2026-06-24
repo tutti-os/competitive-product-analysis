@@ -48,6 +48,7 @@ export type RuntimeStreamEvent =
       name?: string;
       status?: "completed" | "failed";
       summary?: string;
+      output?: unknown;
     }
   | { type: "file_write"; path: string }
   | { type: "stderr"; text: string };

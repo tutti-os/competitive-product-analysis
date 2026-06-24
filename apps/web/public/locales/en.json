@@ -39,6 +39,11 @@
   "chat.thinking.active": "Thinking...",
   "chat.thinking.done": "Thought process",
   "chat.tool.running": "running",
+  "chat.tool.viewDetails": "View data",
+  "chat.tool.hideDetails": "Hide data",
+  "chat.tool.input": "Input",
+  "chat.tool.output": "Output",
+  "chat.tool.summary": "Summary",
 
   "agent.pick": "Pick an agent",
   "agent.none": "No agent",

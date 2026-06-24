@@ -19,6 +19,7 @@ export function applyEventToBlocks(blocks: ContentBlock[], event: AgentRunEvent)
         toolCallId: event.id,
         name: event.name,
         status: "running",
+        ...(event.input !== undefined ? { input: event.input } : {}),
       }];
     case "tool_result":
       return blocks.map((block) =>
@@ -28,6 +29,7 @@ export function applyEventToBlocks(blocks: ContentBlock[], event: AgentRunEvent)
               status: event.status === "failed" ? "failed" : "completed",
               ...(event.name ? { name: event.name } : {}),
               ...(event.summary ? { summary: event.summary } : {}),
+              ...(event.output !== undefined ? { output: event.output } : {}),
             }
           : block,
       );

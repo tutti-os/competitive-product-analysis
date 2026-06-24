@@ -562,6 +562,25 @@ button {
   max-width: 100%;
 }
 
+.tool-trigger {
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.tool-trigger:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-2);
+}
+
+.tool-collapsible {
+  width: min(100%, 760px);
+}
+
+.tool-collapsible.is-open .tool-caret {
+  transform: rotate(90deg);
+}
+
 .tool-icon {
   display: grid;
   place-items: center;
@@ -583,6 +602,7 @@ button {
 .tool-name {
   font-family: var(--mono);
   font-size: 12px;
+  min-width: 0;
 }
 
 .tool-summary,
@@ -591,6 +611,62 @@ button {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.tool-detail-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: auto;
+  color: var(--text-faint);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.tool-caret {
+  transition: transform 0.15s;
+}
+
+.tool-detail-panel {
+  margin-top: 6px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface) 92%, var(--accent-soft));
+  overflow: hidden;
+}
+
+.tool-detail-section + .tool-detail-section {
+  border-top: 1px solid var(--border);
+}
+
+.tool-detail-label {
+  padding: 8px 10px 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.tool-detail-text {
+  margin: 0;
+  padding: 8px 10px 10px;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.tool-json-view {
+  margin: 8px 10px 10px;
+  padding: 9px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  overflow: auto;
+  max-height: 340px;
+  font-family: var(--mono);
+  font-size: 12px;
 }
 
 /* ------------------------------------------------------------- composer */

@@ -32,6 +32,8 @@ export const toolBlockSchema = z.object({
   name: z.string().min(1),
   status: toolBlockStatusSchema,
   summary: z.string().optional(),
+  input: z.unknown().optional(),
+  output: z.unknown().optional(),
 });
 
 export const contentBlockSchema = z.discriminatedUnion("type", [
@@ -344,6 +346,7 @@ export type AgentRunEvent =
       name?: string;
       status?: "completed" | "failed";
       summary?: string;
+      output?: unknown;
     }
   | { type: "file_write"; runId: string; path: string }
   | { type: "artifacts_ready"; runId: string; sessionId: string; artifacts: ResearchArtifact[] }

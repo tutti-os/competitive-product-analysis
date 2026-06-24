@@ -185,12 +185,12 @@ export class ResearchRunService {
             break;
           case "tool_call":
             blocks.flushThinking();
-            blocks.startTool(event.id, event.name);
+            blocks.startTool(event.id, event.name, event.input);
             emit({ type: "tool_call", runId, id: event.id, name: event.name, input: event.input });
             maybePersist();
             break;
           case "tool_result":
-            blocks.finishTool(event.id, event.name, event.status, event.summary);
+            blocks.finishTool(event.id, event.name, event.status, event.summary, event.output);
             emit({
               type: "tool_result",
               runId,
@@ -198,6 +198,7 @@ export class ResearchRunService {
               name: event.name,
               status: event.status,
               summary: event.summary,
+              output: event.output,
             });
             maybePersist();
             break;
@@ -417,10 +418,16 @@ class BlockAccumulator {
     }
   }
 
-  startTool(toolCallId: string, name: string) {
+  startTool(toolCallId: string, name: string, input: unknown | undefined) {
     this.activeText = null;
     this.activeThinking = null;
-    this.blocks.push({ type: "tool", toolCallId, name, status: "running" });
+    this.blocks.push({
+      type: "tool",
+      toolCallId,
+      name,
+      status: "running",
+      ...(input !== undefined ? { input } : {}),
+    });
   }
 
   finishTool(
@@ -428,6 +435,7 @@ class BlockAccumulator {
     name: string | undefined,
     status: "completed" | "failed" | undefined,
     summary: string | undefined,
+    output: unknown | undefined,
   ) {
     const block = [...this.blocks]
       .reverse()
@@ -438,6 +446,7 @@ class BlockAccumulator {
       block.status = status === "failed" ? "failed" : "completed";
       if (name) block.name = name;
       if (summary) block.summary = summary;
+      if (output !== undefined) block.output = output;
     }
   }
 

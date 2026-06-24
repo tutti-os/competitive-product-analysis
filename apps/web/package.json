@@ -5,11 +5,13 @@
   "type": "module",
   "dependencies": {
     "@product-competition/shared": "workspace:*",
+    "@radix-ui/react-collapsible": "^1.1.14",
     "dompurify": "^3.4.11",
     "lucide-react": "^0.562.0",
     "marked": "^15.0.0",
     "react": "^19.2.0",
-    "react-dom": "^19.2.0"
+    "react-dom": "^19.2.0",
+    "react-json-view-lite": "^2.5.0"
   },
   "devDependencies": {
     "@types/react": "^19.2.2",
