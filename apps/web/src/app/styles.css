@@ -577,6 +577,10 @@ button {
   width: min(100%, 760px);
 }
 
+.tool-collapsible .tool-block {
+  width: 100%;
+}
+
 .tool-collapsible.is-open .tool-caret {
   transform: rotate(90deg);
 }
@@ -584,6 +588,7 @@ button {
 .tool-icon {
   display: grid;
   place-items: center;
+  flex: 0 0 13px;
   color: var(--text-muted);
 }
 
@@ -596,12 +601,28 @@ button {
 }
 
 .tool-wrench {
+  flex: 0 0 12px;
   color: var(--text-faint);
 }
 
 .tool-name {
+  flex: 0 0 auto;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-family: var(--mono);
   font-size: 12px;
+  min-width: 0;
+}
+
+.tool-separator {
+  flex: 0 0 auto;
+  color: var(--text-faint);
+}
+
+.tool-summary {
+  flex: 1 1 auto;
   min-width: 0;
 }
 
@@ -616,8 +637,9 @@ button {
 .tool-detail-hint {
   display: inline-flex;
   align-items: center;
+  flex: 0 0 auto;
   gap: 3px;
-  margin-left: auto;
+  margin-left: 4px;
   color: var(--text-faint);
   font-size: 12px;
   white-space: nowrap;

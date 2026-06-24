@@ -95,6 +95,7 @@ function ToolBlock(props: { block: Extract<ContentBlock, { type: "tool" }> }) {
       </span>
       <Wrench size={12} className="tool-wrench" />
       <span className="tool-name">{block.name}</span>
+      {compactSummary ? <span className="tool-separator">·</span> : null}
       {compactSummary ? <span className="tool-summary">{compactSummary}</span> : null}
       {block.status === "running" ? <span className="tool-state">{t("chat.tool.running")}</span> : null}
       {hasDetails ? (
@@ -167,7 +168,18 @@ function compactToolSummary(summary: string | undefined): string | undefined {
   if (!summary) return undefined;
   const trimmed = summary.trim();
   if (!trimmed || trimmed.startsWith("{") || trimmed.startsWith("[")) return undefined;
-  return trimmed;
+  const lines = trimmed
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const heading = lines.find((line) => /^#{1,6}\s+/.test(line));
+  const fallback = lines.find(
+    (line) =>
+      line !== "---" &&
+      !line.startsWith("```") &&
+      !/^(name|description):\s*/i.test(line),
+  );
+  return (heading ?? fallback ?? lines[0] ?? trimmed).replace(/^#{1,6}\s+/, "");
 }
 
 function parseJson(value: string): unknown | undefined {
