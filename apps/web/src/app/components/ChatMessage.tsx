@@ -345,7 +345,16 @@ function toolDetailSections(
 ): DetailSection[] {
   if (block.name.toLowerCase() === "bash") {
     const command = extractCommand(block.input);
+    const description = extractCommandDescription(block.input);
     const commandSections: DetailSection[] = [];
+    if (description) {
+      commandSections.push({
+        key: "operation",
+        kind: "text",
+        label: t("chat.tool.operation"),
+        value: description,
+      });
+    }
     if (command) {
       commandSections.push({
         key: "command",
@@ -403,6 +412,15 @@ function extractCommand(value: unknown): string | undefined {
   }
   if (Array.isArray(record.args) && record.args.every((item) => typeof item === "string")) {
     return record.args.join(" ");
+  }
+  return undefined;
+}
+
+function extractCommandDescription(value: unknown): string | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const record = value as Record<string, unknown>;
+  if (typeof record.description === "string" && record.description.trim()) {
+    return record.description;
   }
   return undefined;
 }
