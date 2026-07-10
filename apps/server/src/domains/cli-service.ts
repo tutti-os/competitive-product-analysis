@@ -11,7 +11,7 @@ import type {
 import type { AppRuntimeConfig } from "../config.js";
 import type { SessionStore } from "../local/session-store.js";
 import { APP_ID, APP_NAME, APP_VERSION } from "../app-meta.js";
-import { detectAgentProviders, pickDefaultProvider } from "./agent-service.js";
+import { detectAgentProviderCatalog } from "./agent-service.js";
 import type { ResearchRunService } from "./research-run-service.js";
 import { probeTuttiCli } from "../runtimes/tutti-cli.js";
 
@@ -41,9 +41,9 @@ export async function cliStatus(
   config: AppRuntimeConfig,
   store: SessionStore,
 ): Promise<CliCommandOutput> {
-  const [sessions, providers, tuttiCli] = await Promise.all([
+  const [sessions, agentCatalog, tuttiCli] = await Promise.all([
     store.listSessions(),
-    detectAgentProviders(),
+    detectAgentProviderCatalog(),
     probeTuttiCli(),
   ]);
   const artifactCount = sessions.reduce((total, session) => total + session.artifactCount, 0);
@@ -51,8 +51,8 @@ export async function cliStatus(
     ok: true,
     app: { id: APP_ID, name: APP_NAME, version: APP_VERSION },
     skillAvailable: Boolean(config.paths.skillDir),
-    providers,
-    defaultProvider: pickDefaultProvider(providers),
+    providers: agentCatalog.providers,
+    defaultProvider: agentCatalog.defaultProvider,
     sessionCount: sessions.length,
     artifactCount,
     tuttiCli: {
@@ -231,11 +231,12 @@ export async function cliStartResearch(
     });
   }
 
-  const providers = await detectAgentProviders();
+  const agentCatalog = await detectAgentProviderCatalog();
+  const providers = agentCatalog.providers;
   const requested = request.provider?.trim();
   const provider = requested
     ? providers.find((item) => item.provider === requested)
-    : providers.find((item) => item.provider === pickDefaultProvider(providers));
+    : providers.find((item) => item.provider === agentCatalog.defaultProvider);
 
   if (requested && !provider) {
     return cliError("provider_unknown", {
@@ -249,7 +250,7 @@ export async function cliStartResearch(
       provider: provider?.provider ?? requested ?? null,
       message:
         provider?.reason ??
-        "No ready local agent provider. Install and sign in to Claude or Codex, then retry.",
+        "No ready Tutti agent provider. Check the agent manager and retry.",
     });
   }
 

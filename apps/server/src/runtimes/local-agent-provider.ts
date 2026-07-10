@@ -2,10 +2,10 @@ import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 import {
-  createDefaultLocalAgentProviderPlugins,
-  createLocalAgentRuntime,
+  createDefaultLocalAgentRuntime,
   type AgentEvent,
 } from "@tutti-os/agent-acp-kit";
+import { detectAgentProviderCatalog } from "../domains/agent-service.js";
 
 import { buildResearchPrompt, buildResearchSystemPrompt } from "./research-prompt.js";
 import {
@@ -20,54 +20,47 @@ import {
 // covers the whole staged pipeline in one process, so it gets the full 2-stage
 // budget. Override with PRODUCT_COMPETITION_LOCAL_AGENT_TIMEOUT_MS when needed.
 const DEFAULT_TIMEOUT_MS = 10_800_000; // 180 min = 2 × 90 min/stage.
-const DEFAULT_PROVIDER = "claude";
 
 /**
- * Drives a locally installed Claude/Codex CLI through @tutti-os/agent-acp-kit
+ * Drives a Tutti-visible local agent through @tutti-os/agent-acp-kit
  * to run the product-swipefile research skill for a single chat turn. The skill
  * is materialized into the run cwd via skillManifest; artifacts it writes are
  * captured by the orchestrator afterwards.
  */
 export class LocalAgentResearchProvider {
   private readonly processes = new Map<string, { cancel: () => Promise<void> | void }>();
-  private readonly localAgentRuntime = createLocalAgentRuntime({
-    providers: createDefaultLocalAgentProviderPlugins(),
-  });
+  private readonly localAgentRuntime = createDefaultLocalAgentRuntime();
 
   describeRun(context: ResearchRunContext): RuntimeRunDescriptor {
+    if (!context.provider) {
+      throw new RuntimeProviderUnsupportedError("Agent provider must be resolved before the run starts.");
+    }
     return {
-      provider: context.provider ?? DEFAULT_PROVIDER,
+      provider: context.provider,
       model: context.model ?? "default",
     };
   }
 
   async detect(context: ResearchRunContext) {
-    const provider = context.provider ?? DEFAULT_PROVIDER;
-    const registered = this.localAgentRuntime.listProviders().some((item) => item.id === provider);
-    if (!registered) {
+    const catalog = await detectAgentProviderCatalog();
+    const provider = context.provider ?? catalog.defaultProvider;
+    if (!provider) {
       return {
         available: false,
-        reason: `Provider is not registered in @tutti-os/agent-acp-kit: ${provider}`,
+        reason: "No ready Tutti agent provider is available.",
       };
     }
-    const detection = (await this.localAgentRuntime.detect()).find((item) => item.provider === provider);
-    if (!detection || detection.result === null) {
-      return { available: false, reason: `${provider} local agent is not installed or not discoverable.` };
-    }
-    if (detection.result?.supported === false) {
-      return {
-        available: false,
-        reason: detection.result.unsupportedReason ?? `${provider} is not supported on this machine.`,
-      };
-    }
-    if (detection.result?.authState === "missing") {
-      return { available: false, reason: `${provider} is installed but authentication is missing.` };
-    }
-    return { available: true };
+    const status = catalog.providers.find((item) => item.provider === provider);
+    return status?.status === "ready"
+      ? { available: true, provider }
+      : { available: false, reason: status?.reason ?? `${provider} is not available.` };
   }
 
   async *run(context: ResearchRunContext): AsyncIterable<RuntimeStreamEvent> {
-    const provider = context.provider ?? DEFAULT_PROVIDER;
+    const provider = context.provider ?? (await detectAgentProviderCatalog()).defaultProvider;
+    if (!provider) {
+      throw new RuntimeProviderUnsupportedError("No ready Tutti agent provider is available.");
+    }
     if (!context.skill) {
       throw new RuntimeProviderUnsupportedError(
         "The product-swipefile skill is missing, so research runs cannot be started.",

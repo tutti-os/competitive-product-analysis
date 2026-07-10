@@ -109,7 +109,6 @@ export class ResearchRunService {
       signal: controller.signal,
     };
 
-    const descriptor = this.provider.describeRun(context);
     this.activeRuns.set(runId, {
       sessionId: session.id,
       controller,
@@ -151,8 +150,12 @@ export class ResearchRunService {
     try {
       const detection = await this.provider.detect(context);
       if (!detection.available) {
-        throw new Error(detection.reason ?? `${descriptor.provider} runtime is not available.`);
+        throw new Error(detection.reason ?? "The selected agent runtime is not available.");
       }
+      const resolvedContext = detection.provider && !context.provider
+        ? { ...context, provider: detection.provider }
+        : context;
+      const descriptor = this.provider.describeRun(resolvedContext);
 
       emit({
         type: "run_started",
@@ -166,7 +169,7 @@ export class ResearchRunService {
       // assistant turn instead of just the user's message.
       await persistAssistant("running");
 
-      for await (const event of this.provider.run(context)) {
+      for await (const event of this.provider.run(resolvedContext)) {
         switch (event.type) {
           case "status":
             blocks.flushThinking();
