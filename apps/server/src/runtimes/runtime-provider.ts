@@ -24,7 +24,7 @@ export interface ResearchRunContext {
   skill: SkillMaterializationRecord | null;
   /** Python interpreter the skill scripts should run with. */
   pythonBin: string;
-  /** Requested provider id (e.g. "claude", "codex"). */
+  /** Requested canonical provider id (e.g. "claude-code", "codex"). */
   provider?: string;
   /** Requested model id. */
   model?: string;

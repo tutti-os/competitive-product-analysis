@@ -21,8 +21,7 @@ import {
 import { APP_ID, APP_NAME, APP_VERSION } from "./app-meta.js";
 import { createRuntimeConfig } from "./config.js";
 import {
-  detectAgentProviders,
-  pickDefaultProvider,
+  detectAgentProviderCatalog,
   warmAgentProviders,
 } from "./domains/agent-service.js";
 import {
@@ -78,16 +77,16 @@ app.get(API_ROUTES.bootstrap, async () => {
   // Continuously self-heal: surface any on-disk session that fell out of the
   // index (without touching active runs, which only this process knows about).
   await store.recoverOrphanSessions().catch(() => undefined);
-  const [sessions, activeSessionId, agentProviders] = await Promise.all([
+  const [sessions, activeSessionId, agentCatalog] = await Promise.all([
     store.listSessions(),
     store.getActiveSessionId(),
-    detectAgentProviders(),
+    detectAgentProviderCatalog(),
   ]);
   return {
     sessions,
     activeSessionId,
-    agentProviders,
-    defaultProvider: pickDefaultProvider(agentProviders),
+    agentProviders: agentCatalog.providers,
+    defaultProvider: agentCatalog.defaultProvider,
   };
 });
 
