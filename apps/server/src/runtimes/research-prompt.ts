@@ -13,15 +13,17 @@ export function buildResearchSystemPrompt(context: ResearchRunContext): string {
   const python = context.pythonBin || "python3";
   return [
     "You are the research operator for Competitive Analysis, a local-first product-research workspace.",
-    "Your job: when the user asks to research/analyze a product (e.g. \"调研一下 Notion\" or \"research Cursor\"), run a deep, evidence-backed product teardown using the bundled product-swipefile skill, and leave the resulting Markdown artifacts on disk.",
+    'Your job: when the user asks to research/analyze a product (e.g. "调研一下 Notion" or "research Cursor"), run a deep, evidence-backed product teardown using the bundled product-swipefile skill, and leave the resulting Markdown artifacts on disk.',
     "",
     "## The skill",
     `The product-swipefile skill is materialized at \`${SKILL_REL_DIR}/\` relative to your current working directory.`,
-    `Always start by reading \`${SKILL_REL_DIR}/SKILL.md\` and follow it exactly: it defines the mandatory staged pipeline (evidence collection → inventory → gap checks → writing → validation) and hard constraints (evidence-traceable, no hallucination, no table-dumping).`,
-    `Run its Python helpers from inside the skill's scripts directory (so the \`product_research\` package imports resolve), using \`${python}\`. For example: \`cd ${SKILL_REL_DIR}/scripts && ${python} research_helper.py new-run --product \"<name>\" --root \"<run_cwd>\"\`, where \`<run_cwd>\` is the absolute run_cwd value given in the turn envelope below.`,
+    `Always start by reading \`${SKILL_REL_DIR}/SKILL.md\` for its mandatory staged pipeline (evidence collection → inventory → gap checks → writing → validation) and hard constraints (evidence-traceable, no hallucination, no table-dumping).`,
+    "Important host override: you are already the exact Agent Target selected for this stage. Do not execute the skill root `run.py`, do not invoke any agent-provider CLI, and do not launch any other provider-specific or nested agent process. Evidence tools such as opencli remain allowed during Stage 1.",
+    "The host enforces stage isolation by launching Stage 1 and Stage 2 as separate fresh agent invocations. Obey the stage contract in the turn envelope and stop after completing only that stage.",
+    `For deterministic operations, use only the provider-agnostic \`${SKILL_REL_DIR}/scripts/research_helper.py\` helpers from inside the scripts directory (so the \`product_research\` package imports resolve), with \`${python}\`. For example: \`cd ${SKILL_REL_DIR}/scripts && ${python} research_helper.py new-run --product \"<name>\" --root \"<run_cwd>\"\`, where \`<run_cwd>\` is the absolute run_cwd value given in the turn envelope below. Perform collection and writing directly with your current tools, applying the same stage gates and validation helpers.`,
     "",
     "## Output location (important)",
-    "Keep every artifact inside the run_cwd directory given in the turn envelope so the app can capture it. When creating the run directory with `new-run`, always pass `--root \"<run_cwd>\"` using that absolute path — never the skill folder and never a home-directory default.",
+    'Keep every artifact inside the run_cwd directory given in the turn envelope so the app can capture it. When creating the run directory with `new-run`, always pass `--root "<run_cwd>"` using that absolute path — never the skill folder and never a home-directory default.',
     "The canonical deliverable is `report.md`. Also produce `inventory.md`, `meta.json`, and the `raw/` evidence cache as the skill specifies, all under run_cwd.",
     "Do not export to Obsidian/Notion/Feishu unless the user explicitly asks; the local Markdown artifacts are the deliverable here.",
     "",
@@ -59,5 +61,47 @@ export function buildResearchPrompt(context: ResearchRunContext): string {
     "<user_message>",
     context.prompt,
     "</user_message>",
+  ].join("\n");
+}
+
+export function buildStage1Prompt(
+  context: ResearchRunContext,
+  rollbackGapPath: string | null = null,
+): string {
+  return [
+    buildResearchPrompt(context),
+    "",
+    "<host_stage_contract>",
+    "stage: stage1_collect_and_freeze",
+    "Complete evidence collection, raw caching, inventory.md, validate-inventory, and checkpoint_stage1.md only.",
+    ...(rollbackGapPath
+      ? [
+          `A prior Stage 2 invocation recorded an essential evidence gap at ${rollbackGapPath}. Read it first, collect the missing evidence, then refresh the inventory and Stage 1 checkpoint.`,
+        ]
+      : []),
+    "Do not write report.md. The host will start a separate fresh Agent invocation for Stage 2 after the checkpoint exists.",
+    "</host_stage_contract>",
+  ].join("\n");
+}
+
+export function buildStage2Prompt(context: ResearchRunContext, checkpointPath: string): string {
+  return [
+    "<research_turn>",
+    `run_id: ${context.runId}`,
+    `session_id: ${context.sessionId}`,
+    `run_cwd: ${context.cwd}`,
+    "</research_turn>",
+    "",
+    "<user_message>",
+    context.prompt,
+    "</user_message>",
+    "",
+    "<host_stage_contract>",
+    "stage: stage2_write_from_frozen_evidence",
+    `stage1_checkpoint: ${checkpointPath}`,
+    "This is a fresh Agent invocation. Read checkpoint_stage1.md, the frozen inventory.md, references/writing.md, and only the raw files referenced by inventory.md.",
+    "Do not use WebSearch, WebFetch, opencli, conversation history, or unrecorded Stage 1 reasoning. Do not modify inventory.md or collect new facts.",
+    "Write report.md, run validate-report, and create checkpoint_stage2.md. If an essential evidence gap remains, write stage2_collection_gap.md and stop instead of inventing facts.",
+    "</host_stage_contract>",
   ].join("\n");
 }

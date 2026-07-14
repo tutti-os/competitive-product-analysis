@@ -1,17 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { Bot, Check, ChevronDown, TriangleAlert } from "lucide-react";
 
-import type { AgentProviderSummary } from "@product-competition/shared";
+import type { AgentSelectionValue, AgentTargetSummary } from "@product-competition/shared";
 
 import { useTranslation } from "../i18n/index.js";
 
-export interface AgentSelection {
-  provider: string;
-  model: string;
-}
+export type AgentSelection = AgentSelectionValue;
 
 export function AgentSelector(props: {
-  providers: AgentProviderSummary[];
+  agents: AgentTargetSummary[];
   value: AgentSelection | null;
   onChange: (selection: AgentSelection) => void;
   disabled?: boolean;
@@ -20,7 +17,7 @@ export function AgentSelector(props: {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
 
-  const ready = props.providers.filter((provider) => provider.status === "ready");
+  const ready = props.agents.filter((agent) => agent.status === "ready");
 
   useEffect(() => {
     if (!open) return;
@@ -34,7 +31,7 @@ export function AgentSelector(props: {
   }, [open]);
 
   const current = props.value
-    ? ready.find((provider) => provider.provider === props.value?.provider) ?? null
+    ? (ready.find((agent) => agent.agentTargetId === props.value?.agentTargetId) ?? null)
     : null;
 
   const label = current
@@ -61,33 +58,34 @@ export function AgentSelector(props: {
           {ready.length === 0 ? (
             <div className="agent-empty">{t("agent.noneHint")}</div>
           ) : (
-            ready.map((provider) => (
-              <div key={provider.provider} className="agent-group">
+            ready.map((agent) => (
+              <div key={agent.agentTargetId} className="agent-group">
                 <button
                   type="button"
                   className="agent-option"
                   onClick={() => {
-                    props.onChange({ provider: provider.provider, model: "" });
+                    props.onChange({ agentTargetId: agent.agentTargetId, model: "" });
                     setOpen(false);
                   }}
                 >
-                  <span>{provider.label}</span>
-                  {props.value?.provider === provider.provider && !props.value.model ? (
+                  <span>{agent.label}</span>
+                  {props.value?.agentTargetId === agent.agentTargetId && !props.value.model ? (
                     <Check size={14} />
                   ) : null}
                 </button>
-                {provider.models.map((model) => (
+                {agent.models.map((model) => (
                   <button
                     key={model}
                     type="button"
                     className="agent-option agent-option-model"
                     onClick={() => {
-                      props.onChange({ provider: provider.provider, model });
+                      props.onChange({ agentTargetId: agent.agentTargetId, model });
                       setOpen(false);
                     }}
                   >
                     <span>{model}</span>
-                    {props.value?.provider === provider.provider && props.value.model === model ? (
+                    {props.value?.agentTargetId === agent.agentTargetId &&
+                    props.value.model === model ? (
                       <Check size={14} />
                     ) : null}
                   </button>

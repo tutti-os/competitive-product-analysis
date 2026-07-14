@@ -1,5 +1,5 @@
 import type {
-  AgentProviderSummary,
+  AgentTargetSummary,
   CliCommandOutput,
   CliReportRequest,
   CliReportsRequest,
@@ -11,7 +11,11 @@ import type {
 import type { AppRuntimeConfig } from "../config.js";
 import type { SessionStore } from "../local/session-store.js";
 import { APP_ID, APP_NAME, APP_VERSION } from "../app-meta.js";
-import { detectAgentProviderCatalog } from "./agent-service.js";
+import {
+  agentSelectionErrorMessage,
+  detectAgentCatalog,
+  resolveAgentSelection,
+} from "./agent-service.js";
 import type { ResearchRunService } from "./research-run-service.js";
 import { probeTuttiCli } from "../runtimes/tutti-cli.js";
 
@@ -31,19 +35,17 @@ const json = (value: unknown): CliCommandOutput => ({ kind: "json", value });
  * (`{ kind: "json", value: { ok: false, error, ... } }`) for app-to-app `--json`
  * callers rather than a bare error body.
  */
-export const cliError = (
-  error: string,
-  extra?: Record<string, unknown>,
-): CliCommandOutput => json({ ok: false, error, ...(extra ?? {}) });
+export const cliError = (error: string, extra?: Record<string, unknown>): CliCommandOutput =>
+  json({ ok: false, error, ...(extra ?? {}) });
 
-/** Runtime + provider + ecosystem health, suitable for an app/agent precheck. */
+/** Runtime + agent + ecosystem health, suitable for an app/agent precheck. */
 export async function cliStatus(
   config: AppRuntimeConfig,
   store: SessionStore,
 ): Promise<CliCommandOutput> {
   const [sessions, agentCatalog, tuttiCli] = await Promise.all([
     store.listSessions(),
-    detectAgentProviderCatalog(),
+    detectAgentCatalog(),
     probeTuttiCli(),
   ]);
   const artifactCount = sessions.reduce((total, session) => total + session.artifactCount, 0);
@@ -51,8 +53,8 @@ export async function cliStatus(
     ok: true,
     app: { id: APP_ID, name: APP_NAME, version: APP_VERSION },
     skillAvailable: Boolean(config.paths.skillDir),
-    providers: agentCatalog.providers,
-    defaultProvider: agentCatalog.defaultProvider,
+    agents: agentCatalog.agents,
+    defaultAgentTargetId: agentCatalog.defaultAgentTargetId,
     sessionCount: sessions.length,
     artifactCount,
     tuttiCli: {
@@ -98,6 +100,9 @@ export async function cliListSessions(
       createdAt: session.createdAt,
       updatedAt: session.updatedAt,
       lastRunId: session.lastRunId ?? null,
+      agentTargetId: session.agentTargetId ?? null,
+      providerId: session.providerId ?? session.provider ?? null,
+      provider: session.providerId ?? session.provider ?? null,
     })),
   });
 }
@@ -147,8 +152,7 @@ export async function cliListReports(
     }
   }
   reports.sort(
-    (left, right) =>
-      Date.parse(String(right.createdAt)) - Date.parse(String(left.createdAt)),
+    (left, right) => Date.parse(String(right.createdAt)) - Date.parse(String(left.createdAt)),
   );
   const total = reports.length;
   const limited = reports.slice(offset, offset + limit);
@@ -198,11 +202,11 @@ export async function cliGetReport(
 /**
  * Kick off a detached research run; the caller polls sessions/reports later.
  *
- * The detached run validates the skill/provider asynchronously, so we preflight
+ * The detached run validates the skill/agent asynchronously, so we preflight
  * those same checks here and only return `ok: true` once the run is actually
  * runnable. Otherwise an app/agent caller would receive a success envelope for a
  * run that then fails in the background (e.g. an unknown or unauthenticated
- * provider) — a misleading signal we observed in review.
+ * target) — a misleading signal we observed in review.
  */
 export async function cliStartResearch(
   request: CliResearchRequest,
@@ -231,36 +235,31 @@ export async function cliStartResearch(
     });
   }
 
-  const agentCatalog = await detectAgentProviderCatalog();
-  const providers = agentCatalog.providers;
-  const requested = request.provider?.trim();
-  const provider = requested
-    ? providers.find((item) => item.provider === requested)
-    : providers.find((item) => item.provider === agentCatalog.defaultProvider);
-
-  if (requested && !provider) {
-    return cliError("provider_unknown", {
-      provider: requested,
-      available: providers.map((item) => item.provider),
-      message: `Unknown provider "${requested}". Run \`competition status\` to see available providers.`,
-    });
+  const agentCatalog = await detectAgentCatalog();
+  const selection = resolveAgentSelection(agentCatalog, {
+    agentTargetId: request.agentId,
+    provider: request.provider,
+  });
+  if (!selection.ok) {
+    const details = {
+      requested: selection.requested,
+      availableAgentIds: agentCatalog.agents.map((item) => item.agentTargetId),
+      ...(selection.matches ? { matches: selection.matches } : {}),
+      message: agentSelectionErrorMessage(selection),
+    };
+    return cliError(selection.code, details);
   }
-  if (!provider || provider.status !== "ready") {
-    return cliError("provider_unavailable", {
-      provider: provider?.provider ?? requested ?? null,
-      message:
-        provider?.reason ??
-        "No ready Tutti agent provider. Check the agent manager and retry.",
-    });
-  }
+  const agent = selection.agent;
 
   const model = request.model?.trim();
-  if (model && provider.models.length > 0 && !providerHasModel(provider, model)) {
+  if (model && agent.models.length > 0 && !agentHasModel(agent, model)) {
     return cliError("model_unavailable", {
-      provider: provider.provider,
+      agentTargetId: agent.agentTargetId,
+      providerId: agent.providerId,
+      provider: agent.providerId,
       model,
-      models: provider.models,
-      message: `Model "${model}" is not available for ${provider.provider}.`,
+      models: agent.models,
+      message: `Model "${model}" is not available for ${agent.label}.`,
     });
   }
 
@@ -274,7 +273,7 @@ export async function cliStartResearch(
     type: "start",
     sessionId,
     prompt: product,
-    provider: provider.provider,
+    agentTargetId: agent.agentTargetId,
     ...(model ? { model } : {}),
   });
 
@@ -283,16 +282,18 @@ export async function cliStartResearch(
     status: "running",
     sessionId,
     runId,
-    provider: provider.provider,
+    agentTargetId: agent.agentTargetId,
+    providerId: agent.providerId,
+    provider: agent.providerId,
     message:
       "Research run started. Poll `competition sessions` or `competition reports` for results.",
   });
 }
 
-/** Whether a model id matches one the provider advertises (with/without its prefix). */
-function providerHasModel(provider: AgentProviderSummary, model: string): boolean {
-  const prefix = `${provider.provider}:`;
+/** Whether a model id matches one the agent runtime advertises (with/without its prefix). */
+function agentHasModel(agent: AgentTargetSummary, model: string): boolean {
+  const prefix = `${agent.providerId}:`;
   const strip = (value: string) => (value.startsWith(prefix) ? value.slice(prefix.length) : value);
   const target = strip(model);
-  return provider.models.some((candidate) => candidate === model || strip(candidate) === target);
+  return agent.models.some((candidate) => candidate === model || strip(candidate) === target);
 }

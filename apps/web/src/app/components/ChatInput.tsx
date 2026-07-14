@@ -1,13 +1,13 @@
 import { useRef, useState } from "react";
 import { ArrowUp, Square } from "lucide-react";
 
-import type { AgentProviderSummary } from "@product-competition/shared";
+import type { AgentTargetSummary } from "@product-competition/shared";
 
 import { useTranslation } from "../i18n/index.js";
 import { AgentSelector, type AgentSelection } from "./AgentSelector.js";
 
 export function ChatInput(props: {
-  providers: AgentProviderSummary[];
+  agents: AgentTargetSummary[];
   selection: AgentSelection | null;
   onSelectionChange: (selection: AgentSelection) => void;
   isRunning: boolean;
@@ -61,7 +61,7 @@ export function ChatInput(props: {
         />
         <div className="composer-toolbar">
           <AgentSelector
-            providers={props.providers}
+            agents={props.agents}
             value={props.selection}
             onChange={props.onSelectionChange}
             disabled={props.isRunning}

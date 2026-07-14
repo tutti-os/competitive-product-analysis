@@ -2,12 +2,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { LoaderCircle, ShieldAlert } from "lucide-react";
 
 import type {
-  AgentProviderSummary,
+  AgentTargetSummary,
   AgentRunEvent,
   ChatMessage,
   ResearchArtifact,
   ResearchSession,
 } from "@product-competition/shared";
+import { resolveInitialAgentSelection } from "@product-competition/shared";
 
 import {
   activateSession,
@@ -38,11 +39,13 @@ export function App() {
 
   const [sessions, setSessions] = useState<ResearchSession[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
-  const [providers, setProviders] = useState<AgentProviderSummary[]>([]);
+  const [agents, setAgents] = useState<AgentTargetSummary[]>([]);
   const [selection, setSelection] = useState<AgentSelection | null>(null);
 
   const [messagesBySession, setMessagesBySession] = useState<Record<string, ChatMessage[]>>({});
-  const [artifactsBySession, setArtifactsBySession] = useState<Record<string, ResearchArtifact[]>>({});
+  const [artifactsBySession, setArtifactsBySession] = useState<Record<string, ResearchArtifact[]>>(
+    {},
+  );
 
   // Track which sessions have an in-flight run so multiple sessions can stream
   // concurrently — running is a per-session fact, not a global one.
@@ -68,9 +71,28 @@ export function App() {
         const boot = await fetchBootstrap();
         if (cancelled) return;
         setSessions(boot.sessions);
-        setProviders(boot.agentProviders);
+        setAgents(boot.agentTargets);
         setActiveSessionId(boot.activeSessionId);
-        setSelection(resolveInitialSelection(boot.agentProviders, boot.defaultProvider));
+        let storedSelection: unknown;
+        try {
+          const stored = localStorage.getItem(SELECTION_KEY);
+          storedSelection = stored ? JSON.parse(stored) : undefined;
+        } catch {
+          storedSelection = undefined;
+        }
+        const resolvedSelection = resolveInitialAgentSelection(
+          boot.agentTargets,
+          boot.defaultAgentTargetId,
+          storedSelection,
+        );
+        setSelection(resolvedSelection);
+        if (resolvedSelection) {
+          try {
+            localStorage.setItem(SELECTION_KEY, JSON.stringify(resolvedSelection));
+          } catch {
+            // Ignore storage failures (private mode etc.).
+          }
+        }
         if (boot.activeSessionId) {
           await loadSession(boot.activeSessionId);
         }
@@ -86,8 +108,8 @@ export function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const activeMessages = activeSessionId ? messagesBySession[activeSessionId] ?? [] : [];
-  const activeArtifacts = activeSessionId ? artifactsBySession[activeSessionId] ?? [] : [];
+  const activeMessages = activeSessionId ? (messagesBySession[activeSessionId] ?? []) : [];
+  const activeArtifacts = activeSessionId ? (artifactsBySession[activeSessionId] ?? []) : [];
   const activeIsRunning = activeSessionId ? runningSessionIds.includes(activeSessionId) : false;
 
   async function loadSession(sessionId: string) {
@@ -140,7 +162,9 @@ export function App() {
     if (!previous || previous.title === trimmed) return;
     // Optimistic update; reconcile with the server response (which also bumps updatedAt).
     setSessions((current) =>
-      current.map((session) => (session.id === sessionId ? { ...session, title: trimmed } : session)),
+      current.map((session) =>
+        session.id === sessionId ? { ...session, title: trimmed } : session,
+      ),
     );
     try {
       const updated = await renameSession(sessionId, trimmed);
@@ -222,7 +246,7 @@ export function App() {
       {
         sessionId: runSessionId,
         prompt: text,
-        provider: selection.provider,
+        agentTargetId: selection.agentTargetId,
         ...(selection.model ? { model: selection.model } : {}),
       },
       {
@@ -286,7 +310,8 @@ export function App() {
   }
 
   const orderedSessions = useMemo(
-    () => [...sessions].sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt)),
+    () =>
+      [...sessions].sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt)),
     [sessions],
   );
 
@@ -333,7 +358,7 @@ export function App() {
         <ChatThread messages={activeMessages} isRunning={activeIsRunning} />
 
         <ChatInput
-          providers={providers}
+          agents={agents}
           selection={selection}
           onSelectionChange={handleSelectionChange}
           isRunning={activeIsRunning}
@@ -357,27 +382,10 @@ export function App() {
   );
 }
 
-function resolveInitialSelection(
-  providers: AgentProviderSummary[],
-  defaultProvider: string | null,
-): AgentSelection | null {
-  const ready = providers.filter((provider) => provider.status === "ready");
-  try {
-    const stored = localStorage.getItem(SELECTION_KEY);
-    if (stored) {
-      const parsed = JSON.parse(stored) as AgentSelection;
-      if (ready.some((provider) => provider.provider === parsed.provider)) {
-        return parsed;
-      }
-    }
-  } catch {
-    // Ignore malformed storage.
-  }
-  if (defaultProvider) return { provider: defaultProvider, model: "" };
-  return ready[0] ? { provider: ready[0].provider, model: "" } : null;
-}
-
-function mergeArtifacts(existing: ResearchArtifact[], incoming: ResearchArtifact[]): ResearchArtifact[] {
+function mergeArtifacts(
+  existing: ResearchArtifact[],
+  incoming: ResearchArtifact[],
+): ResearchArtifact[] {
   const byPath = new Map(existing.map((artifact) => [artifact.relativePath, artifact]));
   for (const artifact of incoming) {
     byPath.set(artifact.relativePath, artifact);

@@ -93,16 +93,26 @@ export const researchSessionSchema = z.object({
   createdAt: z.string(),
   updatedAt: z.string(),
   lastRunId: z.string().optional(),
+  /** Exact target used by the latest successfully resolved run. */
+  agentTargetId: z.string().optional(),
+  /** Runtime metadata associated with agentTargetId. */
+  providerId: z.string().optional(),
+  /** @deprecated Runtime metadata alias. Never use it as session identity. */
+  provider: z.string().optional(),
   messageCount: z.number().int().min(0),
   artifactCount: z.number().int().min(0),
 });
 
 // ---------------------------------------------------------------------------
-// Agent providers
+// Agent targets
 // ---------------------------------------------------------------------------
 
-export const agentProviderSummarySchema = z.object({
-  provider: z.string().min(1),
+export const agentTargetSummarySchema = z.object({
+  agentTargetId: z.string().min(1),
+  /** Runtime metadata; never use this as the selection identity. */
+  providerId: z.string().min(1),
+  /** @deprecated Runtime metadata alias for compatibility consumers. */
+  provider: z.string().min(1).optional(),
   label: z.string().min(1),
   detected: z.boolean(),
   supported: z.boolean(),
@@ -118,9 +128,9 @@ export const agentProviderSummarySchema = z.object({
 export const bootstrapResponseSchema = z.object({
   sessions: z.array(researchSessionSchema),
   activeSessionId: z.string().nullable(),
-  agentProviders: z.array(agentProviderSummarySchema),
-  /** Provider the UI should preselect (skill is tuned for Claude). */
-  defaultProvider: z.string().nullable(),
+  agentTargets: z.array(agentTargetSummarySchema),
+  /** Exact agent target the UI should preselect. */
+  defaultAgentTargetId: z.string().nullable(),
 });
 
 export const createSessionInputSchema = z.object({
@@ -252,12 +262,33 @@ export const cliReportRequestSchema = z.object({
   artifact: z.string().min(1),
 });
 
-export const cliResearchRequestSchema = z.object({
-  product: z.string().min(1),
-  session: z.string().optional(),
-  provider: z.string().optional(),
-  model: z.string().optional(),
-});
+export const cliResearchRequestSchema = z
+  .object({
+    product: z.string().min(1),
+    session: z.string().optional(),
+    "agent-id": z.string().trim().min(1).optional(),
+    agentTargetId: z.string().trim().min(1).optional(),
+    /** @deprecated Use agent-id. Accepted only for an unambiguous catalog mapping. */
+    provider: z.string().trim().min(1).optional(),
+    model: z.string().optional(),
+  })
+  .superRefine((value, ctx) => {
+    const selectorCount =
+      Number(value["agent-id"] !== undefined) + Number(value.agentTargetId !== undefined);
+    if (selectorCount > 1) {
+      ctx.addIssue({ code: "custom", message: "Provide only one of agent-id or agentTargetId." });
+    }
+    if (selectorCount > 0 && value.provider !== undefined) {
+      ctx.addIssue({
+        code: "custom",
+        message: "Provide agent-id/agentTargetId or deprecated provider, not both.",
+      });
+    }
+  })
+  .transform(({ "agent-id": cliAgentId, agentTargetId, ...value }) => ({
+    ...value,
+    agentId: cliAgentId ?? agentTargetId,
+  }));
 
 /**
  * Response envelope every /tutti/cli/* handler returns. App-to-app callers use
@@ -276,13 +307,19 @@ export type CliCommandOutput =
 // WebSocket client messages
 // ---------------------------------------------------------------------------
 
-export const agentRunStartRequestSchema = z.object({
-  type: z.literal("start"),
-  sessionId: z.string().min(1),
-  prompt: z.string().min(1),
-  provider: z.string().optional(),
-  model: z.string().optional(),
-});
+export const agentRunStartRequestSchema = z
+  .object({
+    type: z.literal("start"),
+    sessionId: z.string().min(1),
+    prompt: z.string().min(1),
+    agentTargetId: z.string().trim().min(1).optional(),
+    /** @deprecated Use agentTargetId. Accepted only for an unambiguous catalog mapping. */
+    provider: z.string().trim().min(1).optional(),
+    model: z.string().optional(),
+  })
+  .refine((value) => value.agentTargetId === undefined || value.provider === undefined, {
+    message: "Provide agentTargetId or deprecated provider, not both.",
+  });
 
 export const agentRunCancelRequestSchema = z.object({
   type: z.literal("cancel"),
@@ -309,7 +346,7 @@ export type ArtifactKind = z.infer<typeof artifactKindSchema>;
 export type ResearchArtifact = z.infer<typeof researchArtifactSchema>;
 export type SessionStatus = z.infer<typeof sessionStatusSchema>;
 export type ResearchSession = z.infer<typeof researchSessionSchema>;
-export type AgentProviderSummary = z.infer<typeof agentProviderSummarySchema>;
+export type AgentTargetSummary = z.infer<typeof agentTargetSummarySchema>;
 export type BootstrapResponse = z.infer<typeof bootstrapResponseSchema>;
 export type CreateSessionInput = z.infer<typeof createSessionInputSchema>;
 export type SessionMessagesResponse = z.infer<typeof sessionMessagesResponseSchema>;
@@ -334,7 +371,17 @@ export type AgentRunCancelRequest = z.infer<typeof agentRunCancelRequestSchema>;
  * thinking / tool) and, on completion, into the session artifact list.
  */
 export type AgentRunEvent =
-  | { type: "run_started"; runId: string; sessionId: string; provider: string; model: string }
+  | {
+      type: "run_started";
+      runId: string;
+      sessionId: string;
+      agentTargetId: string;
+      /** Runtime metadata for diagnostics only. */
+      providerId: string;
+      /** @deprecated Runtime metadata alias. */
+      provider: string;
+      model: string;
+    }
   | { type: "status"; runId: string; message: string }
   | { type: "thinking_delta"; runId: string; text: string }
   | { type: "text_delta"; runId: string; text: string }

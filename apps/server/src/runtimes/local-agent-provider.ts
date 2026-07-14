@@ -1,13 +1,23 @@
-import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { constants } from "node:fs";
+import { mkdir, open, readdir, unlink } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
+import { createDefaultLocalAgentRuntime, type AgentEvent } from "@tutti-os/agent-acp-kit";
 import {
-  createDefaultLocalAgentRuntime,
-  type AgentEvent,
-} from "@tutti-os/agent-acp-kit";
-import { detectAgentProviderCatalog } from "../domains/agent-service.js";
+  loadTuttiAgentComposerOptions,
+  loadTuttiAgentSkillContext,
+} from "@tutti-os/agent-acp-kit/tutti";
+import {
+  agentSelectionErrorMessage,
+  detectAgentCatalog,
+  resolveAgentSelection,
+} from "../domains/agent-service.js";
 
-import { buildResearchPrompt, buildResearchSystemPrompt } from "./research-prompt.js";
+import {
+  buildResearchSystemPrompt,
+  buildStage1Prompt,
+  buildStage2Prompt,
+} from "./research-prompt.js";
 import {
   RuntimeProviderUnsupportedError,
   type ResearchRunContext,
@@ -15,11 +25,9 @@ import {
   type RuntimeStreamEvent,
 } from "./runtime-provider.js";
 
-// Aligned with the product-swipefile skill's budget: run.py allows 5400s (90 min)
-// PER STAGE across two stages (collection + writing). This single local-agent run
-// covers the whole staged pipeline in one process, so it gets the full 2-stage
-// budget. Override with PRODUCT_COMPETITION_LOCAL_AGENT_TIMEOUT_MS when needed.
-const DEFAULT_TIMEOUT_MS = 10_800_000; // 180 min = 2 × 90 min/stage.
+// Aligned with the product-swipefile skill's 90-minute budget per stage. The
+// host launches collection and writing as separate fresh agent invocations.
+const DEFAULT_TIMEOUT_MS = 5_400_000;
 
 /**
  * Drives a Tutti-visible local agent through @tutti-os/agent-acp-kit
@@ -32,126 +40,214 @@ export class LocalAgentResearchProvider {
   private readonly localAgentRuntime = createDefaultLocalAgentRuntime();
 
   describeRun(context: ResearchRunContext): RuntimeRunDescriptor {
-    if (!context.provider) {
-      throw new RuntimeProviderUnsupportedError("Agent provider must be resolved before the run starts.");
+    if (!context.agentTargetId || !context.providerId) {
+      throw new RuntimeProviderUnsupportedError(
+        "Agent target must be resolved before the run starts.",
+      );
     }
     return {
-      provider: context.provider,
+      agentTargetId: context.agentTargetId,
+      providerId: context.providerId,
       model: context.model ?? "default",
     };
   }
 
   async detect(context: ResearchRunContext) {
-    const catalog = await detectAgentProviderCatalog();
-    const provider = context.provider ?? catalog.defaultProvider;
-    if (!provider) {
+    const catalog = await detectAgentCatalog();
+    const selection = resolveAgentSelection(catalog, {
+      agentTargetId: context.agentTargetId,
+      provider: context.provider,
+    });
+    if (!selection.ok) {
       return {
         available: false,
-        reason: "No ready Tutti agent provider is available.",
+        reason: agentSelectionErrorMessage(selection),
       };
     }
-    const status = catalog.providers.find((item) => item.provider === provider);
-    return status?.status === "ready"
-      ? { available: true, provider }
-      : { available: false, reason: status?.reason ?? `${provider} is not available.` };
+    return {
+      available: true,
+      agentTargetId: selection.agent.agentTargetId,
+      providerId: selection.agent.providerId,
+    };
   }
 
   async *run(context: ResearchRunContext): AsyncIterable<RuntimeStreamEvent> {
-    const provider = context.provider ?? (await detectAgentProviderCatalog()).defaultProvider;
-    if (!provider) {
-      throw new RuntimeProviderUnsupportedError("No ready Tutti agent provider is available.");
+    const detection =
+      context.agentTargetId && context.providerId
+        ? {
+            available: true,
+            agentTargetId: context.agentTargetId,
+            providerId: context.providerId,
+          }
+        : await this.detect(context);
+    if (!detection.available || !detection.agentTargetId || !detection.providerId) {
+      throw new RuntimeProviderUnsupportedError(
+        detection.reason ?? "No ready Tutti agent is available.",
+      );
     }
+    const agentTargetId = detection.agentTargetId;
+    const providerId = detection.providerId;
     if (!context.skill) {
       throw new RuntimeProviderUnsupportedError(
         "The product-swipefile skill is missing, so research runs cannot be started.",
       );
     }
 
-    mkdirSync(context.cwd, { recursive: true });
+    await mkdir(context.cwd, { recursive: true });
     const controller = new AbortController();
     if (context.signal) {
       if (context.signal.aborted) controller.abort();
       else context.signal.addEventListener("abort", () => controller.abort(), { once: true });
     }
+    let activeStageRunId: string | null = null;
     this.processes.set(context.runId, {
       cancel: async () => {
         controller.abort();
-        await this.localAgentRuntime.cancel(context.runId);
+        if (activeStageRunId) {
+          await this.localAgentRuntime.cancel(activeStageRunId);
+        }
       },
     });
-
-    const sessionStore = new LocalAgentSessionStore(context.agentSessionsDir);
-    const previousSession = sessionStore.read(context.sessionId);
-    let resume =
-      previousSession?.provider === provider && (previousSession.providerSessionId || previousSession.resumeToken)
-        ? {
-            mode: "provider" as const,
-            ...(previousSession.providerSessionId ? { providerSessionId: previousSession.providerSessionId } : {}),
-            ...(previousSession.resumeToken ? { resumeToken: previousSession.resumeToken } : {}),
-          }
-        : { mode: "fresh" as const };
-    let canRetryFresh = resume.mode !== "fresh";
-    let emittedNonRetryableEvent = false;
+    let composer: Awaited<ReturnType<typeof loadTuttiAgentComposerOptions>>;
+    let tuttiSkills: Awaited<ReturnType<typeof loadTuttiAgentSkillContext>>;
+    try {
+      [composer, tuttiSkills] = await Promise.all([
+        loadTuttiAgentComposerOptions({
+          runtime: this.localAgentRuntime,
+          agentTargetId,
+          cwd: context.cwd,
+          signal: controller.signal,
+          ...(context.model ? { model: context.model } : {}),
+        }),
+        loadTuttiAgentSkillContext({
+          agentTargetId,
+          agentSessionId: context.runId,
+          cwd: context.cwd,
+          signal: controller.signal,
+        }),
+      ]);
+    } catch (error) {
+      controller.abort();
+      this.processes.delete(context.runId);
+      throw error;
+    }
+    const model =
+      context.model ??
+      (composer.modelConfig.currentValue || composer.modelConfig.defaultValue || undefined);
+    const permissionMode = composer.permissionConfig.modes.find(
+      (mode) => mode.id === composer.permissionConfig.defaultValue,
+    );
+    const systemPrompt = [
+      buildResearchSystemPrompt(context),
+      tuttiSkills.recommendedSystemPrompt?.content,
+    ]
+      .filter(Boolean)
+      .join("\n\n");
 
     try {
-      while (true) {
-        try {
-          for await (const event of this.localAgentRuntime.run({
-            runId: context.runId,
-            conversationId: context.sessionId,
-            sessionId: context.sessionId,
-            provider,
-            runtimeKind: "local-agent",
-            runtimeProvider: provider,
-            cwd: context.cwd,
-            prompt: buildResearchPrompt(context),
-            systemPrompt: buildResearchSystemPrompt(context),
-            model: stripProviderPrefix(context.model ?? "default", provider),
-            ...(context.history.length > 0 ? { history: context.history } : {}),
-            skillManifest: [context.skill],
-            env: {
-              PRODUCT_SWIPEFILE_PYTHON: context.pythonBin,
-            },
-            timeoutMs: Number(process.env.PRODUCT_COMPETITION_LOCAL_AGENT_TIMEOUT_MS ?? DEFAULT_TIMEOUT_MS),
-            extraAllowedDirs: [context.cwd],
-            resume,
-            signal: controller.signal,
-          })) {
-            const runtimeEvent = toRuntimeStreamEvent(event);
-            if (runtimeEvent) {
-              if (runtimeEvent.type !== "status" && runtimeEvent.type !== "stderr") {
-                emittedNonRetryableEvent = true;
-              }
-              yield runtimeEvent;
-            } else if (event.type === "error") {
-              throw new Error(event.message);
-            } else if (event.type === "done") {
-              if (event.sessionId || event.resumeToken) {
-                sessionStore.write(context.sessionId, {
-                  provider,
-                  providerSessionId: event.sessionId,
-                  resumeToken: event.resumeToken,
-                });
-              }
-              if (event.status === "failed") {
-                throw new Error(
-                  `local-agent ${provider} failed${typeof event.exitCode === "number" ? ` with exit code ${event.exitCode}` : ""}`,
-                );
-              }
+      const initialState = await inspectResearchStageState(context.cwd);
+      let checkpointPath = initialState.checkpointPath;
+      const retryingCollection = initialState.rollbackGapPath !== null;
+      if (retryingCollection && checkpointPath) {
+        await clearRollbackCollectionState(checkpointPath);
+        checkpointPath = null;
+      }
+      const stages =
+        checkpointPath && !retryingCollection
+          ? (["stage2"] as const)
+          : (["stage1", "stage2"] as const);
+      for (const stage of stages) {
+        controller.signal.throwIfAborted();
+        if (stage === "stage2") {
+          checkpointPath = await requireUniqueStage1Checkpoint(context.cwd, true);
+          if (!checkpointPath) {
+            throw new Error(
+              "Stage 1 did not produce checkpoint_stage1.md; Stage 2 was not started.",
+            );
+          }
+          await clearStaleStage2Outputs(dirname(checkpointPath));
+        }
+        const stageRunId = `${context.runId}:${stage}`;
+        activeStageRunId = stageRunId;
+        let terminalStatus: string | undefined;
+        for await (const event of this.localAgentRuntime.run({
+          runId: stageRunId,
+          conversationId: `${context.sessionId}:${stageRunId}`,
+          sessionId: stageRunId,
+          provider: providerId,
+          runtimeKind: "local-agent",
+          runtimeProvider: providerId,
+          cwd: context.cwd,
+          prompt:
+            stage === "stage1"
+              ? buildStage1Prompt(context, initialState.rollbackGapPath)
+              : buildStage2Prompt(context, checkpointPath!),
+          systemPrompt,
+          model: model ? stripProviderPrefix(model, providerId) : undefined,
+          reasoning:
+            composer.reasoningConfig.currentValue ||
+            composer.reasoningConfig.defaultValue ||
+            undefined,
+          permission: permissionMode
+            ? { modeId: permissionMode.id, semantic: permissionMode.semantic }
+            : undefined,
+          ...(stage === "stage1" && context.history.length > 0 ? { history: context.history } : {}),
+          skillManifest: [...tuttiSkills.skillManifest, context.skill],
+          env: {
+            PRODUCT_SWIPEFILE_PYTHON: context.pythonBin,
+          },
+          timeoutMs: Number(
+            process.env.PRODUCT_COMPETITION_LOCAL_AGENT_TIMEOUT_MS ?? DEFAULT_TIMEOUT_MS,
+          ),
+          extraAllowedDirs: [context.cwd],
+          resume: { mode: "fresh" },
+          signal: controller.signal,
+        })) {
+          const runtimeEvent = toRuntimeStreamEvent(event);
+          if (runtimeEvent) {
+            yield runtimeEvent;
+          } else if (event.type === "error") {
+            throw new Error(event.message);
+          } else if (event.type === "done") {
+            terminalStatus = event.status;
+          }
+        }
+        if (terminalStatus !== "completed") {
+          throw new Error(
+            `local-agent ${agentTargetId} ended ${stage} with status ${terminalStatus ?? "unknown"}`,
+          );
+        }
+        if (stage === "stage1") {
+          checkpointPath = await requireUniqueStage1Checkpoint(context.cwd, false);
+          if (!checkpointPath) {
+            const state = await inspectResearchStageState(context.cwd);
+            if (!state.hasResearchArtifacts) {
+              // A conversational turn may correctly finish without starting a
+              // research run. In that case there is no Stage 2 to launch.
+              return;
             }
+            throw new Error(
+              "Stage 1 created research artifacts but did not produce checkpoint_stage1.md; Stage 2 was not started.",
+            );
           }
-          break;
-        } catch (error) {
-          if (canRetryFresh && !emittedNonRetryableEvent && isRecoverableResumeError(error)) {
-            sessionStore.remove(context.sessionId);
-            resume = { mode: "fresh" as const };
-            canRetryFresh = false;
-            continue;
+        }
+        if (stage === "stage2") {
+          const artifactDir = dirname(checkpointPath!);
+          const gapPath = join(artifactDir, "stage2_collection_gap.md");
+          if (await isNonEmptyRegularFile(gapPath)) {
+            throw new Error(
+              "Stage 2 reported an essential evidence gap. The next retry will return to Stage 1 collection.",
+            );
           }
-          throw error;
+          if (!(await hasCompleteStage2Outputs(artifactDir))) {
+            throw new Error(
+              "Stage 2 did not produce non-empty report.md and checkpoint_stage2.md files; the research run was not completed.",
+            );
+          }
         }
       }
     } finally {
+      activeStageRunId = null;
       this.processes.delete(context.runId);
     }
   }
@@ -171,10 +267,19 @@ function toRuntimeStreamEvent(event: AgentEvent): RuntimeStreamEvent | null {
     return { type: "thinking_delta", text: event.text };
   }
   if (event.type === "tool_call") {
-    return { type: "tool_call", id: event.id, name: event.name || "unknown_tool", input: event.input };
+    return {
+      type: "tool_call",
+      id: event.id,
+      name: event.name || "unknown_tool",
+      input: event.input,
+    };
   }
   if (event.type === "tool_result") {
-    const toolResult = event as AgentEvent & { output?: unknown; result?: unknown; content?: unknown };
+    const toolResult = event as AgentEvent & {
+      output?: unknown;
+      result?: unknown;
+      content?: unknown;
+    };
     const output = toolResult.output ?? toolResult.result ?? toolResult.content;
     return {
       type: "tool_result",
@@ -193,59 +298,126 @@ function toRuntimeStreamEvent(event: AgentEvent): RuntimeStreamEvent | null {
   return null;
 }
 
-interface StoredLocalAgentSession {
-  provider: string;
-  providerSessionId?: string;
-  resumeToken?: string;
-  updatedAt: string;
+const STAGE_SCAN_SKIP_DIRS = new Set([".local-agent", "node_modules", ".git"]);
+const RESEARCH_ARTIFACT_NAMES = new Set([
+  "run.json",
+  "meta.json",
+  "inventory.md",
+  "checkpoint_stage1.md",
+  "stage2_collection_gap.md",
+  "report.md",
+]);
+
+export interface ResearchStageState {
+  checkpointPath: string | null;
+  rollbackGapPath: string | null;
+  hasResearchArtifacts: boolean;
 }
 
-class LocalAgentSessionStore {
-  constructor(private readonly sessionsDir: string) {}
+/** Inspect host-visible stage markers without blocking the server event loop. */
+export async function inspectResearchStageState(root: string): Promise<ResearchStageState> {
+  const checkpoints: string[] = [];
+  const rollbackGaps: string[] = [];
+  let hasResearchArtifacts = false;
 
-  read(sessionId: string): StoredLocalAgentSession | null {
+  async function walk(directory: string, depth: number): Promise<void> {
+    if (depth > 5) return;
+    let entries;
     try {
-      const parsed = JSON.parse(readFileSync(this.pathFor(sessionId), "utf8")) as StoredLocalAgentSession;
-      return typeof parsed.provider === "string" && parsed.provider ? parsed : null;
-    } catch {
-      return null;
+      entries = await readdir(directory, { withFileTypes: true });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+      throw error;
+    }
+    for (const entry of entries) {
+      const absolutePath = join(directory, entry.name);
+      if (entry.isFile()) {
+        if (RESEARCH_ARTIFACT_NAMES.has(entry.name)) hasResearchArtifacts = true;
+        if (entry.name === "checkpoint_stage1.md" && await isNonEmptyRegularFile(absolutePath)) {
+          checkpoints.push(absolutePath);
+        }
+        if (entry.name === "stage2_collection_gap.md" && await isNonEmptyRegularFile(absolutePath)) {
+          rollbackGaps.push(absolutePath);
+        }
+      } else if (entry.isDirectory() && !STAGE_SCAN_SKIP_DIRS.has(entry.name)) {
+        if (entry.name === "raw") hasResearchArtifacts = true;
+        await walk(absolutePath, depth + 1);
+      }
     }
   }
 
-  write(sessionId: string, session: Omit<StoredLocalAgentSession, "updatedAt">) {
-    const filePath = this.pathFor(sessionId);
-    mkdirSync(dirname(filePath), { recursive: true });
-    writeFileSync(filePath, `${JSON.stringify({ ...session, updatedAt: new Date().toISOString() }, null, 2)}\n`, "utf8");
+  await walk(root, 0);
+  if (checkpoints.length > 1) {
+    throw new Error("Multiple Stage 1 checkpoints were found in the run directory.");
   }
-
-  remove(sessionId: string) {
-    try {
-      unlinkSync(this.pathFor(sessionId));
-    } catch {
-      // A missing session file already behaves like a fresh run.
-    }
+  if (rollbackGaps.length > 1) {
+    throw new Error("Multiple Stage 2 collection-gap markers were found in the run directory.");
   }
-
-  private pathFor(sessionId: string) {
-    return join(this.sessionsDir, `${safePathSegment(sessionId)}.json`);
+  if (checkpoints[0] && rollbackGaps[0] && dirname(checkpoints[0]) !== dirname(rollbackGaps[0])) {
+    throw new Error("Stage 1 checkpoint and Stage 2 collection-gap marker belong to different runs.");
   }
+  return {
+    checkpointPath: checkpoints[0] ?? null,
+    rollbackGapPath: rollbackGaps[0] ?? null,
+    hasResearchArtifacts,
+  };
 }
 
-function isRecoverableResumeError(error: unknown) {
-  const message = error instanceof Error ? error.message : String(error);
-  return (
-    // Generic resume failures surfaced by the kit / different CLIs.
-    /thread\/resume|resume failed|no rollout found/i.test(message) ||
-    // Claude CLI emits "No conversation found with session ID: <id>" when the
-    // stored session was purged (e.g. the previous run was cancelled). Match
-    // both "no <thing> found" and "<thing> ... not found" phrasings.
-    /no (?:session|conversation|thread|rollout) found/i.test(message) ||
-    /(?:session|conversation|thread)\b[^\n]*\bnot found/i.test(message)
+async function requireUniqueStage1Checkpoint(
+  root: string,
+  required: boolean,
+): Promise<string | null> {
+  const state = await inspectResearchStageState(root);
+  if (required && !state.checkpointPath) {
+    throw new Error("Stage 1 did not produce checkpoint_stage1.md; Stage 2 was not started.");
+  }
+  if (state.checkpointPath && !(await isNonEmptyRegularFile(state.checkpointPath))) {
+    throw new Error("Stage 1 produced an empty checkpoint_stage1.md; Stage 2 was not started.");
+  }
+  return state.checkpointPath;
+}
+
+export async function clearStaleStage2Outputs(artifactDir: string): Promise<void> {
+  await Promise.all(
+    ["report.md", "checkpoint_stage2.md", "stage2_collection_gap.md", "validate-report.json"].map((name) =>
+      unlink(join(artifactDir, name)).catch((error: NodeJS.ErrnoException) => {
+        if (error.code !== "ENOENT") throw error;
+      }),
+    ),
   );
 }
 
-function safePathSegment(value: string) {
-  return value.replace(/[^\w.-]/g, "_") || "unknown";
+export async function clearRollbackCollectionState(checkpointPath: string): Promise<void> {
+  const artifactDir = dirname(checkpointPath);
+  await Promise.all(
+    [checkpointPath, join(artifactDir, "validate-report.json")].map((target) =>
+      unlink(target).catch((error: NodeJS.ErrnoException) => {
+        if (error.code !== "ENOENT") throw error;
+      }),
+    ),
+  );
+}
+
+export async function hasCompleteStage2Outputs(artifactDir: string): Promise<boolean> {
+  return (
+    (await isNonEmptyRegularFile(join(artifactDir, "report.md"))) &&
+    (await isNonEmptyRegularFile(join(artifactDir, "checkpoint_stage2.md")))
+  );
+}
+
+async function isNonEmptyRegularFile(path: string): Promise<boolean> {
+  let file;
+  try {
+    file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+    const metadata = await file.stat();
+    return metadata.isFile() && metadata.size > 0;
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT" || code === "ELOOP") return false;
+    throw error;
+  } finally {
+    await file?.close().catch(() => undefined);
+  }
 }
 
 function stripProviderPrefix(model: string, provider: string) {

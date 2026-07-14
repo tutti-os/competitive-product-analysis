@@ -3,8 +3,12 @@ import path from "node:path";
 
 const SKILL_SLUG = "product-swipefile";
 const SKILL_MAIN = "SKILL.md";
-/** Folders worth materializing for the agent; assets/docs are skipped. */
-const INCLUDED_TOP_LEVEL = new Set(["references", "scripts", "run.py"]);
+/**
+ * Provider-agnostic files worth materializing for the selected Agent Target.
+ * The vendored root run.py launches a nested provider-specific process, so the
+ * app intentionally excludes it and has the current target execute the stages.
+ */
+const INCLUDED_TOP_LEVEL = new Set(["references", "scripts"]);
 const SKIP_DIR_NAMES = new Set(["__pycache__", ".git", "assets"]);
 
 export interface SkillMaterializationFile {
@@ -26,8 +30,8 @@ let cached: { dir: string; record: SkillMaterializationRecord } | null = null;
 /**
  * Read the vendored product-swipefile skill into a kit SkillMaterializationRecord.
  * The kit writes SKILL.md + files into `<run cwd>/.local-agent/skills/<slug>/`
- * before launching the local agent, so the skill (including its Python helper
- * scripts) is available on disk for the duration of the run.
+ * before launching the local agent. Provider-agnostic references and helper
+ * scripts are available on disk; the provider-specific root run.py is omitted.
  */
 export async function loadProductSwipefileSkill(
   skillDir: string,

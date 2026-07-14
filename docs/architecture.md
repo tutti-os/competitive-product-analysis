@@ -4,7 +4,7 @@
 
 This repo is a chat-first Tutti workspace app that follows the `group-chat`-style
 layout described by the provided `SKILL.md`. A single chat turn drives a locally
-installed coding agent (Claude / Codex) to run the `product-swipefile` research
+available Agent Target from the Tutti catalog to run the `product-swipefile` research
 skill and stream the result back into the conversation.
 
 - `apps/web` — browser-first chat workspace (React + Vite)
@@ -15,7 +15,7 @@ skill and stream the result back into the conversation.
 ## Request flow
 
 1. The web app opens a WebSocket to `/api/agent/stream` and sends a `start`
-   message (`sessionId`, `prompt`, `provider`, optional `model`).
+   message (`sessionId`, `prompt`, exact `agentTargetId`, optional `model`).
 2. `ResearchRunService` persists the user message, then drives the agent through
    `LocalAgentResearchProvider` (which wraps `@tutti-os/agent-acp-kit`).
 3. Runtime events (`text_delta` / `thinking_delta` / `tool_call` / `tool_result`
@@ -39,13 +39,14 @@ File-based, local-first. No database. Managed by `SessionStore`.
   - Packaged runtime: `TUTTI_APP_DATA_DIR`
 - Layout:
   - `sessions/index.json` — session index (titles, status, counts, active id)
+    plus the exact `agentTargetId` used by the latest resolved run and its
+    runtime-only `providerId` metadata
   - `sessions/<sessionId>/messages.json` — full chat history (persisted
     incrementally during a run, so a refresh/crash never loses streamed output)
   - `sessions/<sessionId>/artifacts.json` — indexed artifacts for the session
   - `sessions/<sessionId>/runs/<runId>/` — per-run working dir the agent writes
     into (`report.md`, `inventory.md`, `meta.json`, `checkpoint_stage*.md`, plus a
     `raw/` evidence cache that is not surfaced as an artifact)
-  - `agent-sessions/<sessionId>.json` — local-agent resume tokens keyed by session
 
 ## Run lifecycle & resilience
 
@@ -54,10 +55,31 @@ File-based, local-first. No database. Managed by `SessionStore`.
 - **Cancellation**: a run stops on explicit cancel, on session delete, or when the
   WebSocket closes (refresh/navigate). Cancelled runs finalize as `cancelled`
   with partial output preserved.
-- **Resume with fresh-retry fallback**: runs resume the prior agent session when a
-  token exists; if the underlying CLI reports the session is gone (e.g. it was
-  purged after a cancel), the orchestrator drops the stale token and transparently
-  retries once with a fresh session.
+- **Artifact-based resume**: interrupted research reuses its preserved run
+  directory and starts a fresh target invocation at the mechanically determined
+  stage only when the new prompt is an explicit continuation, retry, or names
+  the product recorded in the prior run. A different or unknown subject starts
+  in a fresh directory so it cannot inherit another product's frozen inventory.
+  Provider conversation tokens are intentionally not resumed across the Stage
+  1/Stage 2 isolation boundary.
+- **Target identity**: `agentTargetId` is the selection, API, session, and resume
+  identity. `providerId` is derived runtime metadata only. Deprecated provider
+  inputs are accepted only when the full catalog proves a unique mapping.
+- **Target-scoped context**: composer settings and dynamic skills are loaded for
+  the selected Agent Target before each run, then merged with the bundled
+  product-swipefile skill.
+- **No nested provider launch**: the host invokes the selected exact Agent Target
+  once for collection and again in a fresh context for writing. The app excludes the vendored provider-specific
+  root `run.py` launcher from materialization while retaining provider-agnostic
+  files under `scripts/` and `references/`, including the deterministic
+  `scripts/research_helper.py` helpers. Collection and writing are isolated by
+  a mechanically required frozen artifact checkpoint. Stage 2 starts only when
+  `checkpoint_stage1.md` exists, receives no Stage 1 history or resume token, and
+  may read only the recorded evidence/inventory/checkpoint rather than unrecorded
+  collection reasoning. If Stage 2 writes `stage2_collection_gap.md`, the host
+  treats it as durable rollback state: the next retry returns to Stage 1 to
+  collect the missing evidence before launching a fresh Stage 2. Completion
+  requires non-empty regular `report.md` and `checkpoint_stage2.md` files.
 - **Artifact capture is success-only**: artifacts are scanned/indexed only when a
   run completes normally. Files written by a cancelled/failed run remain on disk
   under `runs/<runId>/` but are not added to the artifact panel.

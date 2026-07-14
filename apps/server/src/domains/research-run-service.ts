@@ -1,4 +1,4 @@
-import { mkdir, readdir } from "node:fs/promises";
+import { mkdir, readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 
 import { nanoid } from "nanoid";
@@ -60,7 +60,26 @@ export class ResearchRunService {
     return { runId, sessionId: request.sessionId };
   }
 
-  async start(request: AgentRunStartRequest, emit: EmitAgentRunEvent, runId = nanoid()): Promise<void> {
+  start(request: AgentRunStartRequest, emit: EmitAgentRunEvent, runId = nanoid()): Promise<void> {
+    const controller = new AbortController();
+    this.activeRuns.set(runId, {
+      sessionId: request.sessionId,
+      controller,
+      cancel: async () => {
+        await this.provider.cancel(runId);
+      },
+    });
+    return this.execute(request, emit, runId, controller).finally(() => {
+      this.activeRuns.delete(runId);
+    });
+  }
+
+  private async execute(
+    request: AgentRunStartRequest,
+    emit: EmitAgentRunEvent,
+    runId: string,
+    controller: AbortController,
+  ): Promise<void> {
     const session = await this.store.getSession(request.sessionId);
     if (!session) {
       emit({ type: "run_failed", runId, message: `Session not found: ${request.sessionId}` });
@@ -84,7 +103,7 @@ export class ResearchRunService {
     // (timed out / failed / cancelled) and left a run directory with collected
     // evidence, reuse that working directory so the skill's stage-status can
     // continue from where it stopped instead of restarting from scratch.
-    const resumeCwd = await this.findResumableRunCwd(session.id, priorMessages);
+    const resumeCwd = await this.findResumableRunCwd(session.id, priorMessages, prompt);
     const cwd = resumeCwd ?? this.store.runDir(session.id, runId);
     const resuming = resumeCwd !== null;
     await mkdir(cwd, { recursive: true });
@@ -93,7 +112,6 @@ export class ResearchRunService {
       ? await loadProductSwipefileSkill(this.config.paths.skillDir).catch(() => null)
       : null;
 
-    const controller = new AbortController();
     const context: ResearchRunContext = {
       runId,
       sessionId: session.id,
@@ -103,19 +121,12 @@ export class ResearchRunService {
       agentSessionsDir: this.config.paths.agentSessionsDir,
       skill,
       pythonBin: this.config.pythonBin,
-      ...(request.provider ? { provider: request.provider } : {}),
+      ...(request.agentTargetId ? { agentTargetId: request.agentTargetId } : {}),
+      ...(!request.agentTargetId && request.provider ? { provider: request.provider } : {}),
       ...(request.model ? { model: request.model } : {}),
       ...(resuming ? { resuming: true } : {}),
       signal: controller.signal,
     };
-
-    this.activeRuns.set(runId, {
-      sessionId: session.id,
-      controller,
-      cancel: async () => {
-        await this.provider.cancel(runId);
-      },
-    });
 
     const assistantId = nanoid();
     const assistantCreatedAt = new Date().toISOString();
@@ -148,20 +159,32 @@ export class ResearchRunService {
     };
 
     try {
+      controller.signal.throwIfAborted();
       const detection = await this.provider.detect(context);
+      controller.signal.throwIfAborted();
       if (!detection.available) {
         throw new Error(detection.reason ?? "The selected agent runtime is not available.");
       }
-      const resolvedContext = detection.provider && !context.provider
-        ? { ...context, provider: detection.provider }
-        : context;
+      const resolvedContext = {
+        ...context,
+        agentTargetId: detection.agentTargetId,
+        providerId: detection.providerId,
+      };
       const descriptor = this.provider.describeRun(resolvedContext);
+
+      await this.store.updateSession(session.id, {
+        agentTargetId: descriptor.agentTargetId,
+        providerId: descriptor.providerId,
+        provider: descriptor.providerId,
+      });
 
       emit({
         type: "run_started",
         runId,
         sessionId: session.id,
-        provider: descriptor.provider,
+        agentTargetId: descriptor.agentTargetId,
+        providerId: descriptor.providerId,
+        provider: descriptor.providerId,
         model: descriptor.model,
       });
 
@@ -235,9 +258,7 @@ export class ResearchRunService {
       await this.store.upsertMessage(session.id, assistantMessage);
 
       const titlePatch =
-        session.title === DEFAULT_TITLE
-          ? { title: scan.productName ?? deriveTitle(prompt) }
-          : {};
+        session.title === DEFAULT_TITLE ? { title: scan.productName ?? deriveTitle(prompt) } : {};
       const updatedSession =
         (await this.store.updateSession(session.id, {
           status: "done",
@@ -287,15 +308,30 @@ export class ResearchRunService {
   private async findResumableRunCwd(
     sessionId: string,
     priorMessages: ChatMessage[],
+    currentPrompt: string,
   ): Promise<string | null> {
-    const lastAssistant = [...priorMessages].reverse().find((message) => message.role === "assistant");
+    const lastAssistant = [...priorMessages]
+      .reverse()
+      .find((message) => message.role === "assistant");
     if (!lastAssistant?.runId) return null;
     // Only resume an interrupted run; a completed run starts fresh so a new
     // question doesn't get appended onto a finished report's directory.
-    if (lastAssistant.runStatus !== "failed" && lastAssistant.runStatus !== "cancelled") return null;
+    if (lastAssistant.runStatus !== "failed" && lastAssistant.runStatus !== "cancelled")
+      return null;
 
     const priorCwd = this.store.runDir(sessionId, lastAssistant.runId);
-    return (await hasResumableRun(priorCwd)) ? priorCwd : null;
+    if (!(await hasResumableRun(priorCwd))) return null;
+    const priorUserPrompt = [...priorMessages]
+      .reverse()
+      .find((message) => message.role === "user")
+      ?.contentBlocks.filter(
+        (block): block is Extract<ContentBlock, { type: "text" }> => block.type === "text",
+      )
+      .map((block) => block.text)
+      .join("\n");
+    return (await shouldResumeResearchRun(priorCwd, currentPrompt, priorUserPrompt))
+      ? priorCwd
+      : null;
   }
 
   async cancel(runId: string): Promise<{ cancelled: boolean }> {
@@ -346,6 +382,219 @@ async function hasResumableRun(cwd: string, depth = 0): Promise<boolean> {
   return false;
 }
 
+const SAFE_CONTINUATION_WORDS = new Set([
+  "again",
+  "analyse",
+  "analyze",
+  "analysis",
+  "analysing",
+  "analyzing",
+  "and",
+  "collect",
+  "collection",
+  "complete",
+  "continue",
+  "coverage",
+  "details",
+  "evidence",
+  "expand",
+  "features",
+  "finish",
+  "fix",
+  "from",
+  "gaps",
+  "going",
+  "improve",
+  "missing",
+  "of",
+  "please",
+  "pricing",
+  "refine",
+  "report",
+  "research",
+  "researching",
+  "resume",
+  "retry",
+  "sources",
+  "the",
+  "try",
+  "update",
+  "validate",
+  "validation",
+  "with",
+  "write",
+  "writing",
+]);
+const SAFE_CONTINUATION_PHRASES = ["keep going", "go on", "try again", "with more"];
+const SAFE_CONTINUATION_CJK = [
+  "继续完成",
+  "重新来",
+  "继续",
+  "接着",
+  "重试",
+  "再试",
+  "补充",
+  "完善",
+  "调研",
+  "研究",
+  "分析",
+  "调查",
+  "看看",
+  "一下",
+  "补齐",
+  "定价",
+  "证据",
+  "报告",
+  "功能",
+  "覆盖",
+  "细节",
+  "来源",
+  "缺口",
+  "缺失",
+  "更多定价",
+  "更多证据",
+  "完成",
+  "改进",
+  "更新",
+  "扩展",
+  "优化",
+  "收集",
+  "撰写",
+  "写作",
+  "验证",
+  "并且",
+  "请",
+  "和",
+  "的",
+];
+
+/**
+ * A failed run is reused only when the new message is recognizably about the
+ * same research subject. Unknown/new requests start in a fresh cwd so a prior
+ * product's frozen inventory can never be reused accidentally.
+ */
+export async function shouldResumeResearchRun(
+  cwd: string,
+  currentPrompt: string,
+  priorPrompt?: string,
+): Promise<boolean> {
+  const current = normalizeResearchText(currentPrompt);
+  if (!current) return false;
+  if (priorPrompt && current === normalizeResearchText(priorPrompt)) return true;
+
+  const productNames = await findResearchProductNames(cwd);
+  const namesRecordedProduct = productNames.some((product) => {
+    const normalizedProduct = normalizeResearchText(product);
+    if (!normalizedProduct) return false;
+    return researchProductPattern(normalizedProduct).test(current);
+  });
+  if (productNames.length > 0) {
+    if (!namesRecordedProduct) return isSafeSubjectlessContinuation(currentPrompt);
+    return unknownContinuationTokens(currentPrompt, productNames).length === 0;
+  }
+  const currentIdentity = unknownContinuationTokens(currentPrompt, []);
+  if (currentIdentity.length === 0) return isSafeSubjectlessContinuation(currentPrompt);
+  if (!priorPrompt) return false;
+  const priorIdentity = unknownContinuationTokens(priorPrompt, []);
+  return (
+    priorIdentity.length > 0 &&
+    currentIdentity.length === priorIdentity.length &&
+    currentIdentity.every((token, index) => token === priorIdentity[index])
+  );
+}
+
+function isSafeSubjectlessContinuation(prompt: string): boolean {
+  const normalized = normalizeResearchText(prompt).replace(/[.!?，。！？：:]+$/gu, "").trim();
+  if (/^(?:please )?(?:continue|resume|retry|try again|keep going|go on)$/u.test(normalized)) return true;
+  if (/^请?(?:继续|接着|重试|再试|重新来)$/u.test(normalized)) return true;
+  return /^请?(?:继续|接着)(?:完成|补充|完善|补齐|更新|扩展|优化|收集|撰写|写作|验证)(?:一下)?(?:更多)?(?:定价证据|证据|功能覆盖|细节|来源|缺口|缺失)$/u.test(
+    normalized,
+  );
+}
+
+function unknownContinuationTokens(
+  prompt: string,
+  productNames: string[],
+): string[] {
+  let residual = normalizeResearchText(prompt);
+  for (const product of productNames) {
+    const normalizedProduct = normalizeResearchText(product);
+    if (!normalizedProduct) continue;
+    residual = residual.replace(
+      researchProductPattern(normalizedProduct, true),
+      " ",
+    );
+  }
+  for (const phrase of SAFE_CONTINUATION_PHRASES) {
+    residual = residual.split(phrase).join(" ");
+  }
+  for (const phrase of [...SAFE_CONTINUATION_CJK].sort((left, right) => right.length - left.length)) {
+    residual = residual.split(phrase).join(" ");
+  }
+  const tokens = residual.match(/[\p{L}\p{N}._-]+/gu) ?? [];
+  return tokens
+    .map((token) => token.toLocaleLowerCase())
+    .filter((token) => !SAFE_CONTINUATION_WORDS.has(token));
+}
+
+function researchProductPattern(product: string, global = false): RegExp {
+  const escaped = product.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+  const flags = `${global ? "g" : ""}iu`;
+  if (/[\p{Script=Latin}\p{N}]/u.test(product)) {
+    return new RegExp(
+      `(?<![\\p{Script=Latin}\\p{N}])${escaped}(?:['’]s)?(?![\\p{Script=Latin}\\p{N}])`,
+      flags,
+    );
+  }
+  // CJK product names are commonly written directly next to surrounding verbs
+  // and particles. Residual-token validation still rejects a second subject
+  // after the exact product name has been removed.
+  return new RegExp(escaped, flags);
+}
+
+async function findResearchProductNames(cwd: string, depth = 0): Promise<string[]> {
+  if (depth > RESUMABLE_MAX_DEPTH) return [];
+  let entries;
+  try {
+    entries = await readdir(cwd, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  const products: string[] = [];
+  const isRunDirectory = entries.some(
+    (entry) => entry.isFile() && RESUMABLE_RUN_MARKERS.has(entry.name),
+  );
+  for (const entry of entries) {
+    if (entry.isFile() && entry.name === "meta.json") {
+      try {
+        const meta = JSON.parse(await readFile(path.join(cwd, entry.name), "utf8")) as Record<
+          string,
+          unknown
+        >;
+        if (typeof meta.product === "string" && meta.product.trim()) {
+          products.push(meta.product.trim());
+        }
+      } catch {
+        // A malformed partial metadata file is not evidence that two prompts
+        // belong to the same product; fail safe by ignoring it.
+      }
+    }
+  }
+  for (const entry of entries) {
+    if (!entry.isDirectory() || shouldSkipResumableDirectory(entry.name, isRunDirectory)) continue;
+    products.push(...(await findResearchProductNames(path.join(cwd, entry.name), depth + 1)));
+  }
+  return products;
+}
+
+function shouldSkipResumableDirectory(name: string, isRunDirectory: boolean): boolean {
+  return RESUMABLE_SKIP_DIRS.has(name) || (isRunDirectory && name === "raw");
+}
+
+function normalizeResearchText(value: string): string {
+  return value.normalize("NFKC").trim().toLocaleLowerCase().replace(/\s+/gu, " ");
+}
+
 function buildHistory(messages: ChatMessage[]): RuntimeHistoryMessage[] {
   return messages
     .slice(-HISTORY_TURN_LIMIT)
@@ -362,7 +611,7 @@ function buildHistory(messages: ChatMessage[]): RuntimeHistoryMessage[] {
 
 /**
  * Strip environment/CLI noise that is meaningless to a research user before a
- * message is shown in the chat: Claude Code SessionStart/SessionEnd hook
+ * message is shown in the chat: provider lifecycle hooks
  * failures (e.g. an external "Flux Island" hook), bare "Hook cancelled" lines,
  * and resume-session diagnostics that the orchestrator already recovers from.
  */
@@ -442,8 +691,9 @@ class BlockAccumulator {
   ) {
     const block = [...this.blocks]
       .reverse()
-      .find((item): item is Extract<ContentBlock, { type: "tool" }> =>
-        item.type === "tool" && item.toolCallId === toolCallId,
+      .find(
+        (item): item is Extract<ContentBlock, { type: "tool" }> =>
+          item.type === "tool" && item.toolCallId === toolCallId,
       );
     if (block) {
       block.status = status === "failed" ? "failed" : "completed";
