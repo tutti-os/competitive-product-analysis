@@ -148,6 +148,10 @@ export class LocalAgentResearchProvider {
       const initialState = await inspectResearchStageState(context.cwd);
       let checkpointPath = initialState.checkpointPath;
       const retryingCollection = initialState.rollbackGapPath !== null;
+      if (retryingCollection && checkpointPath) {
+        await clearRollbackCollectionState(checkpointPath);
+        checkpointPath = null;
+      }
       const stages =
         checkpointPath && !retryingCollection
           ? (["stage2"] as const)
@@ -321,15 +325,20 @@ export async function inspectResearchStageState(root: string): Promise<ResearchS
     let entries;
     try {
       entries = await readdir(directory, { withFileTypes: true });
-    } catch {
-      return;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+      throw error;
     }
     for (const entry of entries) {
       const absolutePath = join(directory, entry.name);
       if (entry.isFile()) {
         if (RESEARCH_ARTIFACT_NAMES.has(entry.name)) hasResearchArtifacts = true;
-        if (entry.name === "checkpoint_stage1.md") checkpoints.push(absolutePath);
-        if (entry.name === "stage2_collection_gap.md") rollbackGaps.push(absolutePath);
+        if (entry.name === "checkpoint_stage1.md" && await isNonEmptyRegularFile(absolutePath)) {
+          checkpoints.push(absolutePath);
+        }
+        if (entry.name === "stage2_collection_gap.md" && await isNonEmptyRegularFile(absolutePath)) {
+          rollbackGaps.push(absolutePath);
+        }
       } else if (entry.isDirectory() && !STAGE_SCAN_SKIP_DIRS.has(entry.name)) {
         if (entry.name === "raw") hasResearchArtifacts = true;
         await walk(absolutePath, depth + 1);
@@ -343,6 +352,9 @@ export async function inspectResearchStageState(root: string): Promise<ResearchS
   }
   if (rollbackGaps.length > 1) {
     throw new Error("Multiple Stage 2 collection-gap markers were found in the run directory.");
+  }
+  if (checkpoints[0] && rollbackGaps[0] && dirname(checkpoints[0]) !== dirname(rollbackGaps[0])) {
+    throw new Error("Stage 1 checkpoint and Stage 2 collection-gap marker belong to different runs.");
   }
   return {
     checkpointPath: checkpoints[0] ?? null,
@@ -365,10 +377,21 @@ async function requireUniqueStage1Checkpoint(
   return state.checkpointPath;
 }
 
-async function clearStaleStage2Outputs(artifactDir: string): Promise<void> {
+export async function clearStaleStage2Outputs(artifactDir: string): Promise<void> {
   await Promise.all(
-    ["report.md", "checkpoint_stage2.md", "stage2_collection_gap.md"].map((name) =>
+    ["report.md", "checkpoint_stage2.md", "stage2_collection_gap.md", "validate-report.json"].map((name) =>
       unlink(join(artifactDir, name)).catch((error: NodeJS.ErrnoException) => {
+        if (error.code !== "ENOENT") throw error;
+      }),
+    ),
+  );
+}
+
+export async function clearRollbackCollectionState(checkpointPath: string): Promise<void> {
+  const artifactDir = dirname(checkpointPath);
+  await Promise.all(
+    [checkpointPath, join(artifactDir, "validate-report.json")].map((target) =>
+      unlink(target).catch((error: NodeJS.ErrnoException) => {
         if (error.code !== "ENOENT") throw error;
       }),
     ),
@@ -388,8 +411,10 @@ async function isNonEmptyRegularFile(path: string): Promise<boolean> {
     file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
     const metadata = await file.stat();
     return metadata.isFile() && metadata.size > 0;
-  } catch {
-    return false;
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT" || code === "ELOOP") return false;
+    throw error;
   } finally {
     await file?.close().catch(() => undefined);
   }

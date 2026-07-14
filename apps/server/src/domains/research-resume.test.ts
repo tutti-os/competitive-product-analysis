@@ -29,8 +29,25 @@ test("resume accepts exact retries, explicit continuations, and the same recorde
   assert.equal(await shouldResumeResearchRun(root, "Analyze Notion pricing", "Research Notion"), true);
   assert.equal(await shouldResumeResearchRun(root, "继续调研 Notion 的定价证据", "调研 Notion"), true);
   assert.equal(await shouldResumeResearchRun(root, "继续补充 Notion 定价证据", "调研 Notion"), true);
+  assert.equal(await shouldResumeResearchRun(root, "继续调研Notion的定价证据", "调研 Notion"), true);
+  assert.equal(await shouldResumeResearchRun(root, "继续补充Notion更多定价证据", "调研 Notion"), true);
+  assert.equal(await shouldResumeResearchRun(root, "Continue Notion's pricing research", "Research Notion"), true);
+  assert.equal(await shouldResumeResearchRun(root, "Please continue", "Research Notion"), true);
+  assert.equal(await shouldResumeResearchRun(root, "请继续", "调研 Notion"), true);
   assert.equal(await shouldResumeResearchRun(root, "Keep going", "Research Notion"), true);
   assert.equal(await shouldResumeResearchRun(root, "Go on", "Research Notion"), true);
+});
+
+test("raw evidence metadata cannot replace the run product identity", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "competitive-resume-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const runDir = join(root, "notion", "20260715");
+  await mkdir(join(runDir, "raw"), { recursive: true });
+  await writeFile(join(runDir, "meta.json"), JSON.stringify({ product: "Notion" }));
+  await writeFile(join(runDir, "raw", "meta.json"), JSON.stringify({ product: "Cursor" }));
+
+  assert.equal(await shouldResumeResearchRun(root, "Research Cursor", "Research Notion"), false);
+  assert.equal(await shouldResumeResearchRun(root, "Continue Notion pricing", "Research Notion"), true);
 });
 
 test("a different or unknown product starts in a fresh working directory", async (t) => {

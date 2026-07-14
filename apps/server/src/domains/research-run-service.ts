@@ -356,7 +356,7 @@ export class ResearchRunService {
 
 /** Files that mark a run directory as worth resuming (created by the skill). */
 const RESUMABLE_RUN_MARKERS = new Set(["run.json", "meta.json", "inventory.md", "report.md"]);
-const RESUMABLE_SKIP_DIRS = new Set([".local-agent", "__pycache__", ".git", "node_modules"]);
+const RESUMABLE_SKIP_DIRS = new Set([".local-agent", "__pycache__", ".git", "node_modules", "raw"]);
 const RESUMABLE_MAX_DEPTH = 5;
 
 /**
@@ -486,10 +486,7 @@ export async function shouldResumeResearchRun(
   const namesRecordedProduct = productNames.some((product) => {
     const normalizedProduct = normalizeResearchText(product);
     if (!normalizedProduct) return false;
-    const escaped = normalizedProduct.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
-    return new RegExp(`(?:^|[^\\p{L}\\p{N}])${escaped}(?:$|[^\\p{L}\\p{N}])`, "iu").test(
-      current,
-    );
+    return researchProductPattern(normalizedProduct).test(current);
   });
   if (productNames.length > 0) {
     if (!namesRecordedProduct) return isSafeSubjectlessContinuation(currentPrompt);
@@ -508,9 +505,9 @@ export async function shouldResumeResearchRun(
 
 function isSafeSubjectlessContinuation(prompt: string): boolean {
   const normalized = normalizeResearchText(prompt).replace(/[.!?，。！？：:]+$/gu, "").trim();
-  if (/^(?:continue|resume|retry|try again|keep going|go on)$/u.test(normalized)) return true;
-  if (/^(?:继续|接着|重试|再试|重新来)$/u.test(normalized)) return true;
-  return /^(?:继续|接着)(?:完成|补充|完善|补齐|更新|扩展|优化|收集|撰写|写作|验证)(?:一下)?(?:更多)?(?:定价证据|证据|功能覆盖|细节|来源|缺口|缺失)$/u.test(
+  if (/^(?:please )?(?:continue|resume|retry|try again|keep going|go on)$/u.test(normalized)) return true;
+  if (/^请?(?:继续|接着|重试|再试|重新来)$/u.test(normalized)) return true;
+  return /^请?(?:继续|接着)(?:完成|补充|完善|补齐|更新|扩展|优化|收集|撰写|写作|验证)(?:一下)?(?:更多)?(?:定价证据|证据|功能覆盖|细节|来源|缺口|缺失)$/u.test(
     normalized,
   );
 }
@@ -523,22 +520,33 @@ function unknownContinuationTokens(
   for (const product of productNames) {
     const normalizedProduct = normalizeResearchText(product);
     if (!normalizedProduct) continue;
-    const escaped = normalizedProduct.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
     residual = residual.replace(
-      new RegExp(`(?:^|[^\\p{L}\\p{N}])${escaped}(?=$|[^\\p{L}\\p{N}])`, "giu"),
+      researchProductPattern(normalizedProduct, true),
       " ",
     );
   }
   for (const phrase of SAFE_CONTINUATION_PHRASES) {
     residual = residual.split(phrase).join(" ");
   }
-  for (const phrase of SAFE_CONTINUATION_CJK) {
+  for (const phrase of [...SAFE_CONTINUATION_CJK].sort((left, right) => right.length - left.length)) {
     residual = residual.split(phrase).join(" ");
   }
   const tokens = residual.match(/[\p{L}\p{N}._-]+/gu) ?? [];
   return tokens
     .map((token) => token.toLocaleLowerCase())
     .filter((token) => !SAFE_CONTINUATION_WORDS.has(token));
+}
+
+function researchProductPattern(product: string, global = false): RegExp {
+  const escaped = product.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+  const flags = `${global ? "g" : ""}iu`;
+  if (/[\p{Script=Latin}\p{N}]/u.test(product)) {
+    return new RegExp(
+      `(?<![\\p{Script=Latin}\\p{N}])${escaped}(?:['’]s)?(?![\\p{Script=Latin}\\p{N}])`,
+      flags,
+    );
+  }
+  return new RegExp(`(?:^|[\\s，。！？：:])${escaped}(?=$|[\\s，。！？：:的])`, flags);
 }
 
 async function findResearchProductNames(cwd: string, depth = 0): Promise<string[]> {
