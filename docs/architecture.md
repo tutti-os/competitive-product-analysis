@@ -47,7 +47,6 @@ File-based, local-first. No database. Managed by `SessionStore`.
   - `sessions/<sessionId>/runs/<runId>/` — per-run working dir the agent writes
     into (`report.md`, `inventory.md`, `meta.json`, `checkpoint_stage*.md`, plus a
     `raw/` evidence cache that is not surfaced as an artifact)
-  - `agent-sessions/<sessionId>.json` — local-agent resume tokens keyed by session
 
 ## Run lifecycle & resilience
 
@@ -56,21 +55,25 @@ File-based, local-first. No database. Managed by `SessionStore`.
 - **Cancellation**: a run stops on explicit cancel, on session delete, or when the
   WebSocket closes (refresh/navigate). Cancelled runs finalize as `cancelled`
   with partial output preserved.
-- **Resume with fresh-retry fallback**: runs resume the prior agent session when a
-  token exists for the same exact Agent Target and runtime provider; if the
-  underlying CLI reports the session is gone (e.g. it was
-  purged after a cancel), the orchestrator drops the stale token and transparently
-  retries once with a fresh session.
+- **Artifact-based resume**: interrupted research reuses its preserved run
+  directory and starts a fresh target invocation at the mechanically determined
+  stage. Provider conversation tokens are intentionally not resumed across the
+  Stage 1/Stage 2 isolation boundary.
 - **Target identity**: `agentTargetId` is the selection, API, session, and resume
   identity. `providerId` is derived runtime metadata only. Deprecated provider
   inputs are accepted only when the full catalog proves a unique mapping.
 - **Target-scoped context**: composer settings and dynamic skills are loaded for
   the selected Agent Target before each run, then merged with the bundled
   product-swipefile skill.
-- **No nested provider launch**: the selected exact Agent Target executes every
-  product-swipefile stage directly. The app excludes the vendored provider-specific
-  root `run.py` launcher from materialization and exposes only the
-  provider-agnostic `scripts/research_helper.py` deterministic helpers.
+- **No nested provider launch**: the host invokes the selected exact Agent Target
+  once for collection and again in a fresh context for writing. The app excludes the vendored provider-specific
+  root `run.py` launcher from materialization while retaining provider-agnostic
+  files under `scripts/` and `references/`, including the deterministic
+  `scripts/research_helper.py` helpers. Collection and writing are isolated by
+  a mechanically required frozen artifact checkpoint. Stage 2 starts only when
+  `checkpoint_stage1.md` exists, receives no Stage 1 history or resume token, and
+  may read only the recorded evidence/inventory/checkpoint rather than unrecorded
+  collection reasoning.
 - **Artifact capture is success-only**: artifacts are scanned/indexed only when a
   run completes normally. Files written by a cancelled/failed run remain on disk
   under `runs/<runId>/` but are not added to the artifact panel.

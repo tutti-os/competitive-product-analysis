@@ -60,7 +60,26 @@ export class ResearchRunService {
     return { runId, sessionId: request.sessionId };
   }
 
-  async start(request: AgentRunStartRequest, emit: EmitAgentRunEvent, runId = nanoid()): Promise<void> {
+  start(request: AgentRunStartRequest, emit: EmitAgentRunEvent, runId = nanoid()): Promise<void> {
+    const controller = new AbortController();
+    this.activeRuns.set(runId, {
+      sessionId: request.sessionId,
+      controller,
+      cancel: async () => {
+        await this.provider.cancel(runId);
+      },
+    });
+    return this.execute(request, emit, runId, controller).finally(() => {
+      this.activeRuns.delete(runId);
+    });
+  }
+
+  private async execute(
+    request: AgentRunStartRequest,
+    emit: EmitAgentRunEvent,
+    runId: string,
+    controller: AbortController,
+  ): Promise<void> {
     const session = await this.store.getSession(request.sessionId);
     if (!session) {
       emit({ type: "run_failed", runId, message: `Session not found: ${request.sessionId}` });
@@ -93,7 +112,6 @@ export class ResearchRunService {
       ? await loadProductSwipefileSkill(this.config.paths.skillDir).catch(() => null)
       : null;
 
-    const controller = new AbortController();
     const context: ResearchRunContext = {
       runId,
       sessionId: session.id,
@@ -109,14 +127,6 @@ export class ResearchRunService {
       ...(resuming ? { resuming: true } : {}),
       signal: controller.signal,
     };
-
-    this.activeRuns.set(runId, {
-      sessionId: session.id,
-      controller,
-      cancel: async () => {
-        await this.provider.cancel(runId);
-      },
-    });
 
     const assistantId = nanoid();
     const assistantCreatedAt = new Date().toISOString();
@@ -149,7 +159,9 @@ export class ResearchRunService {
     };
 
     try {
+      controller.signal.throwIfAborted();
       const detection = await this.provider.detect(context);
+      controller.signal.throwIfAborted();
       if (!detection.available) {
         throw new Error(detection.reason ?? "The selected agent runtime is not available.");
       }
@@ -246,9 +258,7 @@ export class ResearchRunService {
       await this.store.upsertMessage(session.id, assistantMessage);
 
       const titlePatch =
-        session.title === DEFAULT_TITLE
-          ? { title: scan.productName ?? deriveTitle(prompt) }
-          : {};
+        session.title === DEFAULT_TITLE ? { title: scan.productName ?? deriveTitle(prompt) } : {};
       const updatedSession =
         (await this.store.updateSession(session.id, {
           status: "done",
@@ -299,11 +309,14 @@ export class ResearchRunService {
     sessionId: string,
     priorMessages: ChatMessage[],
   ): Promise<string | null> {
-    const lastAssistant = [...priorMessages].reverse().find((message) => message.role === "assistant");
+    const lastAssistant = [...priorMessages]
+      .reverse()
+      .find((message) => message.role === "assistant");
     if (!lastAssistant?.runId) return null;
     // Only resume an interrupted run; a completed run starts fresh so a new
     // question doesn't get appended onto a finished report's directory.
-    if (lastAssistant.runStatus !== "failed" && lastAssistant.runStatus !== "cancelled") return null;
+    if (lastAssistant.runStatus !== "failed" && lastAssistant.runStatus !== "cancelled")
+      return null;
 
     const priorCwd = this.store.runDir(sessionId, lastAssistant.runId);
     return (await hasResumableRun(priorCwd)) ? priorCwd : null;
@@ -453,8 +466,9 @@ class BlockAccumulator {
   ) {
     const block = [...this.blocks]
       .reverse()
-      .find((item): item is Extract<ContentBlock, { type: "tool" }> =>
-        item.type === "tool" && item.toolCallId === toolCallId,
+      .find(
+        (item): item is Extract<ContentBlock, { type: "tool" }> =>
+          item.type === "tool" && item.toolCallId === toolCallId,
       );
     if (block) {
       block.status = status === "failed" ? "failed" : "completed";

@@ -1,11 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { buildResearchSystemPrompt } from "./research-prompt.js";
+import {
+  buildResearchSystemPrompt,
+  buildStage1Prompt,
+  buildStage2Prompt,
+} from "./research-prompt.js";
 import type { ResearchRunContext } from "./runtime-provider.js";
 
-test("system prompt keeps the selected target in-process and forbids nested launchers", () => {
-  const prompt = buildResearchSystemPrompt({
+test("host prompts enforce separate fresh collection and writing invocations", () => {
+  const context = {
     runId: "run-1",
     sessionId: "session-1",
     prompt: "Research Example",
@@ -16,12 +20,22 @@ test("system prompt keeps the selected target in-process and forbids nested laun
     pythonBin: "python3",
     agentTargetId: "team:researcher",
     providerId: "shared-runtime",
-  } satisfies ResearchRunContext);
+  } satisfies ResearchRunContext;
+  const prompt = buildResearchSystemPrompt(context);
+  const stage1 = buildStage1Prompt(context);
+  const stage2 = buildStage2Prompt(context, "/tmp/research-run/checkpoint_stage1.md");
 
-  assert.match(prompt, /exact Agent Target selected for this run/);
+  assert.match(prompt, /exact Agent Target selected for this stage/);
   assert.match(prompt, /Do not execute the skill root `run\.py`/);
-  assert.match(prompt, /do not invoke any provider CLI/);
+  assert.match(prompt, /do not invoke any agent-provider CLI/);
+  assert.match(prompt, /Evidence tools such as opencli remain allowed/);
   assert.match(prompt, /do not launch any other provider-specific or nested agent process/);
   assert.match(prompt, /use only the provider-agnostic .*research_helper\.py/);
-  assert.match(prompt, /Perform collection and writing directly with your current tools/);
+  assert.match(prompt, /separate fresh agent invocations/);
+  assert.match(stage1, /stage1_collect_and_freeze/);
+  assert.match(stage1, /Do not write report\.md/);
+  assert.match(stage2, /stage2_write_from_frozen_evidence/);
+  assert.match(stage2, /This is a fresh Agent invocation/);
+  assert.match(stage2, /Do not use WebSearch, WebFetch, opencli, conversation history/);
+  assert.doesNotMatch(stage2, /<continuation>/);
 });

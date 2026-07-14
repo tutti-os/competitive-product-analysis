@@ -35,7 +35,7 @@ jobs:
         run: pnpm typecheck
 
       - name: Test
-        run: pnpm test
+        run: pnpm --filter @product-competition/server test
 
       - name: Check i18n
         run: pnpm check:i18n

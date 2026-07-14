@@ -11,7 +11,11 @@ import type {
 import type { AppRuntimeConfig } from "../config.js";
 import type { SessionStore } from "../local/session-store.js";
 import { APP_ID, APP_NAME, APP_VERSION } from "../app-meta.js";
-import { detectAgentCatalog, resolveAgentSelection } from "./agent-service.js";
+import {
+  agentSelectionErrorMessage,
+  detectAgentCatalog,
+  resolveAgentSelection,
+} from "./agent-service.js";
 import type { ResearchRunService } from "./research-run-service.js";
 import { probeTuttiCli } from "../runtimes/tutti-cli.js";
 
@@ -31,10 +35,8 @@ const json = (value: unknown): CliCommandOutput => ({ kind: "json", value });
  * (`{ kind: "json", value: { ok: false, error, ... } }`) for app-to-app `--json`
  * callers rather than a bare error body.
  */
-export const cliError = (
-  error: string,
-  extra?: Record<string, unknown>,
-): CliCommandOutput => json({ ok: false, error, ...(extra ?? {}) });
+export const cliError = (error: string, extra?: Record<string, unknown>): CliCommandOutput =>
+  json({ ok: false, error, ...(extra ?? {}) });
 
 /** Runtime + agent + ecosystem health, suitable for an app/agent precheck. */
 export async function cliStatus(
@@ -99,7 +101,7 @@ export async function cliListSessions(
       updatedAt: session.updatedAt,
       lastRunId: session.lastRunId ?? null,
       agentTargetId: session.agentTargetId ?? null,
-      providerId: session.providerId ?? null,
+      providerId: session.providerId ?? session.provider ?? null,
       provider: session.providerId ?? session.provider ?? null,
     })),
   });
@@ -150,8 +152,7 @@ export async function cliListReports(
     }
   }
   reports.sort(
-    (left, right) =>
-      Date.parse(String(right.createdAt)) - Date.parse(String(left.createdAt)),
+    (left, right) => Date.parse(String(right.createdAt)) - Date.parse(String(left.createdAt)),
   );
   const total = reports.length;
   const limited = reports.slice(offset, offset + limit);
@@ -244,10 +245,7 @@ export async function cliStartResearch(
       requested: selection.requested,
       availableAgentIds: agentCatalog.agents.map((item) => item.agentTargetId),
       ...(selection.matches ? { matches: selection.matches } : {}),
-      message:
-        selection.code === "provider_ambiguous"
-          ? `Provider "${selection.requested}" maps to multiple agents. Retry with --agent-id.`
-          : selection.reason ?? "No ready Tutti agent is available. Check the agent manager and retry.",
+      message: agentSelectionErrorMessage(selection),
     };
     return cliError(selection.code, details);
   }

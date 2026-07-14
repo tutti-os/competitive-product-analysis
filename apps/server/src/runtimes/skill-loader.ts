@@ -30,8 +30,8 @@ let cached: { dir: string; record: SkillMaterializationRecord } | null = null;
 /**
  * Read the vendored product-swipefile skill into a kit SkillMaterializationRecord.
  * The kit writes SKILL.md + files into `<run cwd>/.local-agent/skills/<slug>/`
- * before launching the local agent, so the skill (including its Python helper
- * scripts) is available on disk for the duration of the run.
+ * before launching the local agent. Provider-agnostic references and helper
+ * scripts are available on disk; the provider-specific root run.py is omitted.
  */
 export async function loadProductSwipefileSkill(
   skillDir: string,

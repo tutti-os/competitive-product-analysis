@@ -266,14 +266,24 @@ export const cliResearchRequestSchema = z
   .object({
     product: z.string().min(1),
     session: z.string().optional(),
-    "agent-id": z.string().optional(),
-    agentTargetId: z.string().optional(),
+    "agent-id": z.string().trim().min(1).optional(),
+    agentTargetId: z.string().trim().min(1).optional(),
     /** @deprecated Use agent-id. Accepted only for an unambiguous catalog mapping. */
-    provider: z.string().optional(),
+    provider: z.string().trim().min(1).optional(),
     model: z.string().optional(),
   })
-  .refine((value) => !(value["agent-id"] || value.agentTargetId) || !value.provider, {
-    message: "Provide agent-id or deprecated provider, not both.",
+  .superRefine((value, ctx) => {
+    const selectorCount =
+      Number(value["agent-id"] !== undefined) + Number(value.agentTargetId !== undefined);
+    if (selectorCount > 1) {
+      ctx.addIssue({ code: "custom", message: "Provide only one of agent-id or agentTargetId." });
+    }
+    if (selectorCount > 0 && value.provider !== undefined) {
+      ctx.addIssue({
+        code: "custom",
+        message: "Provide agent-id/agentTargetId or deprecated provider, not both.",
+      });
+    }
   })
   .transform(({ "agent-id": cliAgentId, agentTargetId, ...value }) => ({
     ...value,
@@ -302,12 +312,12 @@ export const agentRunStartRequestSchema = z
     type: z.literal("start"),
     sessionId: z.string().min(1),
     prompt: z.string().min(1),
-    agentTargetId: z.string().optional(),
+    agentTargetId: z.string().trim().min(1).optional(),
     /** @deprecated Use agentTargetId. Accepted only for an unambiguous catalog mapping. */
-    provider: z.string().optional(),
+    provider: z.string().trim().min(1).optional(),
     model: z.string().optional(),
   })
-  .refine((value) => !value.agentTargetId || !value.provider, {
+  .refine((value) => value.agentTargetId === undefined || value.provider === undefined, {
     message: "Provide agentTargetId or deprecated provider, not both.",
   });
 

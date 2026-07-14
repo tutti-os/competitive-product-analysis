@@ -43,7 +43,9 @@ export function App() {
   const [selection, setSelection] = useState<AgentSelection | null>(null);
 
   const [messagesBySession, setMessagesBySession] = useState<Record<string, ChatMessage[]>>({});
-  const [artifactsBySession, setArtifactsBySession] = useState<Record<string, ResearchArtifact[]>>({});
+  const [artifactsBySession, setArtifactsBySession] = useState<Record<string, ResearchArtifact[]>>(
+    {},
+  );
 
   // Track which sessions have an in-flight run so multiple sessions can stream
   // concurrently — running is a per-session fact, not a global one.
@@ -78,13 +80,19 @@ export function App() {
         } catch {
           storedSelection = undefined;
         }
-        setSelection(
-          resolveInitialAgentSelection(
-            boot.agentTargets,
-            boot.defaultAgentTargetId,
-            storedSelection,
-          ),
+        const resolvedSelection = resolveInitialAgentSelection(
+          boot.agentTargets,
+          boot.defaultAgentTargetId,
+          storedSelection,
         );
+        setSelection(resolvedSelection);
+        if (resolvedSelection) {
+          try {
+            localStorage.setItem(SELECTION_KEY, JSON.stringify(resolvedSelection));
+          } catch {
+            // Ignore storage failures (private mode etc.).
+          }
+        }
         if (boot.activeSessionId) {
           await loadSession(boot.activeSessionId);
         }
@@ -100,8 +108,8 @@ export function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const activeMessages = activeSessionId ? messagesBySession[activeSessionId] ?? [] : [];
-  const activeArtifacts = activeSessionId ? artifactsBySession[activeSessionId] ?? [] : [];
+  const activeMessages = activeSessionId ? (messagesBySession[activeSessionId] ?? []) : [];
+  const activeArtifacts = activeSessionId ? (artifactsBySession[activeSessionId] ?? []) : [];
   const activeIsRunning = activeSessionId ? runningSessionIds.includes(activeSessionId) : false;
 
   async function loadSession(sessionId: string) {
@@ -154,7 +162,9 @@ export function App() {
     if (!previous || previous.title === trimmed) return;
     // Optimistic update; reconcile with the server response (which also bumps updatedAt).
     setSessions((current) =>
-      current.map((session) => (session.id === sessionId ? { ...session, title: trimmed } : session)),
+      current.map((session) =>
+        session.id === sessionId ? { ...session, title: trimmed } : session,
+      ),
     );
     try {
       const updated = await renameSession(sessionId, trimmed);
@@ -300,7 +310,8 @@ export function App() {
   }
 
   const orderedSessions = useMemo(
-    () => [...sessions].sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt)),
+    () =>
+      [...sessions].sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt)),
     [sessions],
   );
 
@@ -371,7 +382,10 @@ export function App() {
   );
 }
 
-function mergeArtifacts(existing: ResearchArtifact[], incoming: ResearchArtifact[]): ResearchArtifact[] {
+function mergeArtifacts(
+  existing: ResearchArtifact[],
+  incoming: ResearchArtifact[],
+): ResearchArtifact[] {
   const byPath = new Map(existing.map((artifact) => [artifact.relativePath, artifact]));
   for (const artifact of incoming) {
     byPath.set(artifact.relativePath, artifact);

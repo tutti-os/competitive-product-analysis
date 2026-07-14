@@ -1,14 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { Bot, Check, ChevronDown, TriangleAlert } from "lucide-react";
 
-import type { AgentTargetSummary } from "@product-competition/shared";
+import type { AgentSelectionValue, AgentTargetSummary } from "@product-competition/shared";
 
 import { useTranslation } from "../i18n/index.js";
 
-export interface AgentSelection {
-  agentTargetId: string;
-  model: string;
-}
+export type AgentSelection = AgentSelectionValue;
 
 export function AgentSelector(props: {
   agents: AgentTargetSummary[];
@@ -34,7 +31,7 @@ export function AgentSelector(props: {
   }, [open]);
 
   const current = props.value
-    ? ready.find((agent) => agent.agentTargetId === props.value?.agentTargetId) ?? null
+    ? (ready.find((agent) => agent.agentTargetId === props.value?.agentTargetId) ?? null)
     : null;
 
   const label = current
@@ -87,7 +84,8 @@ export function AgentSelector(props: {
                     }}
                   >
                     <span>{model}</span>
-                    {props.value?.agentTargetId === agent.agentTargetId && props.value.model === model ? (
+                    {props.value?.agentTargetId === agent.agentTargetId &&
+                    props.value.model === model ? (
                       <Check size={14} />
                     ) : null}
                   </button>

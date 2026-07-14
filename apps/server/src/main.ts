@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 import Fastify from "fastify";
 import fastifyStatic from "@fastify/static";
 import fastifyWebsocket from "@fastify/websocket";
+import { nanoid } from "nanoid";
 import {
   agentRunClientMessageSchema,
   cliReportRequestSchema,
@@ -20,10 +21,7 @@ import {
 
 import { APP_ID, APP_NAME, APP_VERSION } from "./app-meta.js";
 import { createRuntimeConfig } from "./config.js";
-import {
-  detectAgentCatalog,
-  warmAgentCatalog,
-} from "./domains/agent-service.js";
+import { detectAgentCatalog, warmAgentCatalog } from "./domains/agent-service.js";
 import {
   cliError,
   cliGetReport,
@@ -182,7 +180,9 @@ app.get(API_ROUTES.agentStream, { websocket: true }, (socket) => {
       void researchRuns.cancel(message.data.runId);
       return;
     }
-    void researchRuns.start(message.data, emit);
+    const runId = nanoid();
+    activeRunId = runId;
+    void researchRuns.start(message.data, emit, runId);
   });
 
   socket.on("close", () => {
@@ -195,7 +195,9 @@ app.get(API_ROUTES.agentStream, { websocket: true }, (socket) => {
 app.post(API_ROUTES.referencesList, async (request, reply) => {
   const result = referenceListRequestSchema.safeParse(request.body);
   if (!result.success) {
-    return reply.status(400).send({ error: "invalid_reference_request", details: result.error.flatten() });
+    return reply
+      .status(400)
+      .send({ error: "invalid_reference_request", details: result.error.flatten() });
   }
   return buildReferenceList(result.data, store);
 });
@@ -203,7 +205,9 @@ app.post(API_ROUTES.referencesList, async (request, reply) => {
 app.post(API_ROUTES.referencesSearch, async (request, reply) => {
   const result = referenceSearchRequestSchema.safeParse(request.body);
   if (!result.success) {
-    return reply.status(400).send({ error: "invalid_search_request", details: result.error.flatten() });
+    return reply
+      .status(400)
+      .send({ error: "invalid_search_request", details: result.error.flatten() });
   }
   return searchReferences(result.data, store);
 });

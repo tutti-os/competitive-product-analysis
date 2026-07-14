@@ -18,9 +18,14 @@ export function resolveInitialAgentSelection(
   const ready = agents.filter((agent) => agent.status === "ready");
   if (isRecord(storedValue)) {
     const agentTargetId = optionalString(storedValue.agentTargetId);
-    const selected = ready.find((agent) => agent.agentTargetId === agentTargetId);
-    if (selected) {
-      return { agentTargetId: selected.agentTargetId, model: optionalString(storedValue.model) ?? "" };
+    if (agentTargetId) {
+      const selected = ready.find((agent) => agent.agentTargetId === agentTargetId);
+      return selected
+        ? {
+            agentTargetId: selected.agentTargetId,
+            model: storedModelForAgent(selected, storedValue.model),
+          }
+        : null;
     }
 
     const legacyProvider = optionalString(storedValue.provider);
@@ -32,9 +37,10 @@ export function resolveInitialAgentSelection(
       if (matches.length === 1 && matches[0].status === "ready") {
         return {
           agentTargetId: matches[0].agentTargetId,
-          model: optionalString(storedValue.model) ?? "",
+          model: storedModelForAgent(matches[0], storedValue.model),
         };
       }
+      return null;
     }
   }
 
@@ -44,6 +50,12 @@ export function resolveInitialAgentSelection(
     : ready[0]
       ? { agentTargetId: ready[0].agentTargetId, model: "" }
       : null;
+}
+
+function storedModelForAgent(agent: AgentTargetSummary, value: unknown): string {
+  const model = optionalString(value);
+  if (!model || agent.models.length === 0) return "";
+  return agent.models.includes(model) ? model : "";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
