@@ -375,11 +375,8 @@ async function hasResumableRun(cwd: string, depth = 0): Promise<boolean> {
   for (const entry of entries) {
     if (entry.isFile() && RESUMABLE_RUN_MARKERS.has(entry.name)) return true;
   }
-  const isRunDirectory = entries.some(
-    (entry) => entry.isFile() && RESUMABLE_RUN_MARKERS.has(entry.name),
-  );
   for (const entry of entries) {
-    if (!entry.isDirectory() || shouldSkipResumableDirectory(entry.name, isRunDirectory)) continue;
+    if (!entry.isDirectory() || RESUMABLE_SKIP_DIRS.has(entry.name)) continue;
     if (await hasResumableRun(path.join(cwd, entry.name), depth + 1)) return true;
   }
   return false;
