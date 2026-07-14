@@ -386,7 +386,11 @@ const CONTINUATION_PROMPT =
   /^(?:(?:continue|resume|retry|try\s+again|keep\s+going|go\s+on)(?:$|\b|[\s，。！？：:])|(?:继续|接着|重试|再试|重新来|补充|完善))/iu;
 const SAFE_CONTINUATION_WORDS = new Set([
   "again",
+  "analyse",
+  "analyze",
   "analysis",
+  "analysing",
+  "analyzing",
   "and",
   "collect",
   "collection",
@@ -404,6 +408,7 @@ const SAFE_CONTINUATION_WORDS = new Set([
   "going",
   "improve",
   "missing",
+  "more",
   "of",
   "please",
   "pricing",
@@ -480,15 +485,6 @@ export async function shouldResumeResearchRun(
   if (priorPrompt && current === normalizeResearchText(priorPrompt)) return true;
 
   const productNames = await findResearchProductNames(cwd);
-  const explicitSubject = extractExplicitResearchSubject(currentPrompt);
-  if (explicitSubject) {
-    const knownSubjects = productNames.map(normalizeResearchText).filter(Boolean);
-    if (knownSubjects.length > 0) return knownSubjects.includes(explicitSubject);
-    const priorSubject = priorPrompt
-      ? extractExplicitResearchSubject(priorPrompt)
-      : null;
-    return priorSubject !== null && priorSubject === explicitSubject;
-  }
   const namesRecordedProduct = productNames.some((product) => {
     const normalizedProduct = normalizeResearchText(product);
     if (!normalizedProduct) return false;
@@ -511,17 +507,6 @@ export async function shouldResumeResearchRun(
     currentIdentity.length === priorIdentity.length &&
     currentIdentity.every((token, index) => token === priorIdentity[index])
   );
-}
-
-function extractExplicitResearchSubject(prompt: string): string | null {
-  const english = prompt.match(
-    /\b(?:research(?:ing)?|analy[sz](?:e|ing)|analysis\s+of|investigat(?:e|ing)|review(?:ing)?)\s+(?:the\s+)?([^,.;!?，。！？：:]{1,120})/iu,
-  )?.[1];
-  if (english) return normalizeResearchText(english);
-  const chinese = prompt.match(
-    /(?:调研|研究|分析|调查|看看|补充)(?:一下)?\s*([^,.;!?，。！？：:]{1,120})/u,
-  )?.[1];
-  return chinese ? normalizeResearchText(chinese) : null;
 }
 
 function unknownContinuationTokens(

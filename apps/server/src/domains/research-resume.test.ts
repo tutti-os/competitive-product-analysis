@@ -17,6 +17,18 @@ test("resume accepts exact retries, explicit continuations, and the same recorde
   assert.equal(await shouldResumeResearchRun(root, "继续补齐定价证据", "调研 Notion"), true);
   assert.equal(await shouldResumeResearchRun(root, "Retry the Notion analysis", "Research Notion"), true);
   assert.equal(await shouldResumeResearchRun(root, "Continue research Notion", "Research Notion"), true);
+  assert.equal(
+    await shouldResumeResearchRun(
+      root,
+      "Continue research Notion with more pricing evidence",
+      "Research Notion",
+    ),
+    true,
+  );
+  assert.equal(await shouldResumeResearchRun(root, "Research Notion pricing", "Research Notion"), true);
+  assert.equal(await shouldResumeResearchRun(root, "Analyze Notion pricing", "Research Notion"), true);
+  assert.equal(await shouldResumeResearchRun(root, "继续调研 Notion 的定价证据", "调研 Notion"), true);
+  assert.equal(await shouldResumeResearchRun(root, "继续补充 Notion 定价证据", "调研 Notion"), true);
   assert.equal(await shouldResumeResearchRun(root, "Keep going", "Research Notion"), true);
   assert.equal(await shouldResumeResearchRun(root, "Go on", "Research Notion"), true);
 });
