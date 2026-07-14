@@ -1,4 +1,4 @@
-import { mkdir, readdir } from "node:fs/promises";
+import { mkdir, readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 
 import { nanoid } from "nanoid";
@@ -103,7 +103,7 @@ export class ResearchRunService {
     // (timed out / failed / cancelled) and left a run directory with collected
     // evidence, reuse that working directory so the skill's stage-status can
     // continue from where it stopped instead of restarting from scratch.
-    const resumeCwd = await this.findResumableRunCwd(session.id, priorMessages);
+    const resumeCwd = await this.findResumableRunCwd(session.id, priorMessages, prompt);
     const cwd = resumeCwd ?? this.store.runDir(session.id, runId);
     const resuming = resumeCwd !== null;
     await mkdir(cwd, { recursive: true });
@@ -308,6 +308,7 @@ export class ResearchRunService {
   private async findResumableRunCwd(
     sessionId: string,
     priorMessages: ChatMessage[],
+    currentPrompt: string,
   ): Promise<string | null> {
     const lastAssistant = [...priorMessages]
       .reverse()
@@ -319,7 +320,18 @@ export class ResearchRunService {
       return null;
 
     const priorCwd = this.store.runDir(sessionId, lastAssistant.runId);
-    return (await hasResumableRun(priorCwd)) ? priorCwd : null;
+    if (!(await hasResumableRun(priorCwd))) return null;
+    const priorUserPrompt = [...priorMessages]
+      .reverse()
+      .find((message) => message.role === "user")
+      ?.contentBlocks.filter(
+        (block): block is Extract<ContentBlock, { type: "text" }> => block.type === "text",
+      )
+      .map((block) => block.text)
+      .join("\n");
+    return (await shouldResumeResearchRun(priorCwd, currentPrompt, priorUserPrompt))
+      ? priorCwd
+      : null;
   }
 
   async cancel(runId: string): Promise<{ cancelled: boolean }> {
@@ -368,6 +380,67 @@ async function hasResumableRun(cwd: string, depth = 0): Promise<boolean> {
     if (await hasResumableRun(path.join(cwd, entry.name), depth + 1)) return true;
   }
   return false;
+}
+
+const CONTINUATION_PROMPT =
+  /^(?:(?:continue|resume|retry|try\s+again|keep\s+going|go\s+on)(?:$|\b|[\s，。！？：:])|(?:继续|接着|重试|再试|重新来|补充|完善))/iu;
+
+/**
+ * A failed run is reused only when the new message is recognizably about the
+ * same research subject. Unknown/new requests start in a fresh cwd so a prior
+ * product's frozen inventory can never be reused accidentally.
+ */
+export async function shouldResumeResearchRun(
+  cwd: string,
+  currentPrompt: string,
+  priorPrompt?: string,
+): Promise<boolean> {
+  const current = normalizeResearchText(currentPrompt);
+  if (!current) return false;
+  if (priorPrompt && current === normalizeResearchText(priorPrompt)) return true;
+  if (CONTINUATION_PROMPT.test(currentPrompt.trim())) return true;
+
+  const productNames = await findResearchProductNames(cwd);
+  return productNames.some((product) => {
+    const normalizedProduct = normalizeResearchText(product);
+    return normalizedProduct.length > 0 && current.includes(normalizedProduct);
+  });
+}
+
+async function findResearchProductNames(cwd: string, depth = 0): Promise<string[]> {
+  if (depth > RESUMABLE_MAX_DEPTH) return [];
+  let entries;
+  try {
+    entries = await readdir(cwd, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  const products: string[] = [];
+  for (const entry of entries) {
+    if (entry.isFile() && entry.name === "meta.json") {
+      try {
+        const meta = JSON.parse(await readFile(path.join(cwd, entry.name), "utf8")) as Record<
+          string,
+          unknown
+        >;
+        if (typeof meta.product === "string" && meta.product.trim()) {
+          products.push(meta.product.trim());
+        }
+      } catch {
+        // A malformed partial metadata file is not evidence that two prompts
+        // belong to the same product; fail safe by ignoring it.
+      }
+    }
+  }
+  for (const entry of entries) {
+    if (!entry.isDirectory() || RESUMABLE_SKIP_DIRS.has(entry.name)) continue;
+    products.push(...(await findResearchProductNames(path.join(cwd, entry.name), depth + 1)));
+  }
+  return products;
+}
+
+function normalizeResearchText(value: string): string {
+  return value.normalize("NFKC").trim().toLocaleLowerCase().replace(/\s+/gu, " ");
 }
 
 function buildHistory(messages: ChatMessage[]): RuntimeHistoryMessage[] {

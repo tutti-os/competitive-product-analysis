@@ -23,6 +23,10 @@ test("host prompts enforce separate fresh collection and writing invocations", (
   } satisfies ResearchRunContext;
   const prompt = buildResearchSystemPrompt(context);
   const stage1 = buildStage1Prompt(context);
+  const rollbackStage1 = buildStage1Prompt(
+    context,
+    "/tmp/research-run/example/run/stage2_collection_gap.md",
+  );
   const stage2 = buildStage2Prompt(context, "/tmp/research-run/checkpoint_stage1.md");
 
   assert.match(prompt, /exact Agent Target selected for this stage/);
@@ -34,6 +38,8 @@ test("host prompts enforce separate fresh collection and writing invocations", (
   assert.match(prompt, /separate fresh agent invocations/);
   assert.match(stage1, /stage1_collect_and_freeze/);
   assert.match(stage1, /Do not write report\.md/);
+  assert.match(rollbackStage1, /prior Stage 2 invocation recorded an essential evidence gap/);
+  assert.match(rollbackStage1, /stage2_collection_gap\.md/);
   assert.match(stage2, /stage2_write_from_frozen_evidence/);
   assert.match(stage2, /This is a fresh Agent invocation/);
   assert.match(stage2, /Do not use WebSearch, WebFetch, opencli, conversation history/);

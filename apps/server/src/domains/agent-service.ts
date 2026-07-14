@@ -103,7 +103,7 @@ export function agentSelectionErrorMessage(
   if (selection.code === "provider_unknown" && selection.requested) {
     return `Provider "${selection.requested}" does not map to a current Agent Target.`;
   }
-  if (selection.code === "provider_ambiguous") {
+  if (selection.code === "provider_ambiguous" && selection.requested) {
     return `Provider "${selection.requested}" maps to multiple agents. Select an exact Agent Target.`;
   }
   return (

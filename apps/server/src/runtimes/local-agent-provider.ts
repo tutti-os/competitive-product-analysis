@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync } from "node:fs";
+import { mkdir, readdir, stat, unlink } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 import { createDefaultLocalAgentRuntime, type AgentEvent } from "@tutti-os/agent-acp-kit";
@@ -92,7 +92,7 @@ export class LocalAgentResearchProvider {
       );
     }
 
-    mkdirSync(context.cwd, { recursive: true });
+    await mkdir(context.cwd, { recursive: true });
     const controller = new AbortController();
     if (context.signal) {
       if (context.signal.aborted) controller.abort();
@@ -126,6 +126,7 @@ export class LocalAgentResearchProvider {
         }),
       ]);
     } catch (error) {
+      controller.abort();
       this.processes.delete(context.runId);
       throw error;
     }
@@ -143,17 +144,23 @@ export class LocalAgentResearchProvider {
       .join("\n\n");
 
     try {
-      let checkpointPath = requireUniqueStage1Checkpoint(context.cwd, false);
-      const stages = checkpointPath ? (["stage2"] as const) : (["stage1", "stage2"] as const);
+      const initialState = await inspectResearchStageState(context.cwd);
+      let checkpointPath = initialState.checkpointPath;
+      const retryingCollection = initialState.rollbackGapPath !== null;
+      const stages =
+        checkpointPath && !retryingCollection
+          ? (["stage2"] as const)
+          : (["stage1", "stage2"] as const);
       for (const stage of stages) {
         controller.signal.throwIfAborted();
         if (stage === "stage2") {
-          checkpointPath = requireUniqueStage1Checkpoint(context.cwd, true);
+          checkpointPath = await requireUniqueStage1Checkpoint(context.cwd, true);
           if (!checkpointPath) {
             throw new Error(
               "Stage 1 did not produce checkpoint_stage1.md; Stage 2 was not started.",
             );
           }
+          await clearStaleStage2Outputs(dirname(checkpointPath));
         }
         const stageRunId = `${context.runId}:${stage}`;
         activeStageRunId = stageRunId;
@@ -168,7 +175,7 @@ export class LocalAgentResearchProvider {
           cwd: context.cwd,
           prompt:
             stage === "stage1"
-              ? buildStage1Prompt(context)
+              ? buildStage1Prompt(context, initialState.rollbackGapPath)
               : buildStage2Prompt(context, checkpointPath!),
           systemPrompt,
           model: model ? stripProviderPrefix(model, providerId) : undefined,
@@ -205,14 +212,31 @@ export class LocalAgentResearchProvider {
             `local-agent ${agentTargetId} ended ${stage} with status ${terminalStatus ?? "unknown"}`,
           );
         }
+        if (stage === "stage1") {
+          checkpointPath = await requireUniqueStage1Checkpoint(context.cwd, false);
+          if (!checkpointPath) {
+            const state = await inspectResearchStageState(context.cwd);
+            if (!state.hasResearchArtifacts) {
+              // A conversational turn may correctly finish without starting a
+              // research run. In that case there is no Stage 2 to launch.
+              return;
+            }
+            throw new Error(
+              "Stage 1 created research artifacts but did not produce checkpoint_stage1.md; Stage 2 was not started.",
+            );
+          }
+        }
         if (stage === "stage2") {
           const artifactDir = dirname(checkpointPath!);
-          if (
-            !existsSync(join(artifactDir, "report.md")) ||
-            !existsSync(join(artifactDir, "checkpoint_stage2.md"))
-          ) {
+          const gapPath = join(artifactDir, "stage2_collection_gap.md");
+          if (await isNonEmptyRegularFile(gapPath)) {
             throw new Error(
-              "Stage 2 did not produce report.md and checkpoint_stage2.md; the research run was not completed.",
+              "Stage 2 reported an essential evidence gap. The next retry will return to Stage 1 collection.",
+            );
+          }
+          if (!(await hasCompleteStage2Outputs(artifactDir))) {
+            throw new Error(
+              "Stage 2 did not produce non-empty report.md and checkpoint_stage2.md files; the research run was not completed.",
             );
           }
         }
@@ -269,34 +293,101 @@ function toRuntimeStreamEvent(event: AgentEvent): RuntimeStreamEvent | null {
   return null;
 }
 
-function findStage1Checkpoints(root: string, depth = 0): string[] {
-  if (depth > 5) return [];
-  const matches: string[] = [];
-  for (const entry of readdirSync(root, { withFileTypes: true })) {
-    if (entry.name === "checkpoint_stage1.md" && entry.isFile()) {
-      matches.push(join(root, entry.name));
-    }
-    if (
-      entry.isDirectory() &&
-      entry.name !== ".local-agent" &&
-      entry.name !== "node_modules" &&
-      entry.name !== ".git"
-    ) {
-      matches.push(...findStage1Checkpoints(join(root, entry.name), depth + 1));
-    }
-  }
-  return matches;
+const STAGE_SCAN_SKIP_DIRS = new Set([".local-agent", "node_modules", ".git"]);
+const RESEARCH_ARTIFACT_NAMES = new Set([
+  "run.json",
+  "meta.json",
+  "inventory.md",
+  "checkpoint_stage1.md",
+  "stage2_collection_gap.md",
+  "report.md",
+]);
+
+export interface ResearchStageState {
+  checkpointPath: string | null;
+  rollbackGapPath: string | null;
+  hasResearchArtifacts: boolean;
 }
 
-function requireUniqueStage1Checkpoint(root: string, required: boolean): string | null {
-  const matches = findStage1Checkpoints(root);
-  if (matches.length > 1) {
+/** Inspect host-visible stage markers without blocking the server event loop. */
+export async function inspectResearchStageState(root: string): Promise<ResearchStageState> {
+  const checkpoints: string[] = [];
+  const rollbackGaps: string[] = [];
+  let hasResearchArtifacts = false;
+
+  async function walk(directory: string, depth: number): Promise<void> {
+    if (depth > 5) return;
+    let entries;
+    try {
+      entries = await readdir(directory, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const absolutePath = join(directory, entry.name);
+      if (entry.isFile()) {
+        if (RESEARCH_ARTIFACT_NAMES.has(entry.name)) hasResearchArtifacts = true;
+        if (entry.name === "checkpoint_stage1.md") checkpoints.push(absolutePath);
+        if (entry.name === "stage2_collection_gap.md") rollbackGaps.push(absolutePath);
+      } else if (entry.isDirectory() && !STAGE_SCAN_SKIP_DIRS.has(entry.name)) {
+        if (entry.name === "raw") hasResearchArtifacts = true;
+        await walk(absolutePath, depth + 1);
+      }
+    }
+  }
+
+  await walk(root, 0);
+  if (checkpoints.length > 1) {
     throw new Error("Multiple Stage 1 checkpoints were found in the run directory.");
   }
-  if (required && matches.length === 0) {
+  if (rollbackGaps.length > 1) {
+    throw new Error("Multiple Stage 2 collection-gap markers were found in the run directory.");
+  }
+  return {
+    checkpointPath: checkpoints[0] ?? null,
+    rollbackGapPath: rollbackGaps[0] ?? null,
+    hasResearchArtifacts,
+  };
+}
+
+async function requireUniqueStage1Checkpoint(
+  root: string,
+  required: boolean,
+): Promise<string | null> {
+  const state = await inspectResearchStageState(root);
+  if (required && !state.checkpointPath) {
     throw new Error("Stage 1 did not produce checkpoint_stage1.md; Stage 2 was not started.");
   }
-  return matches[0] ?? null;
+  if (state.checkpointPath && !(await isNonEmptyRegularFile(state.checkpointPath))) {
+    throw new Error("Stage 1 produced an empty checkpoint_stage1.md; Stage 2 was not started.");
+  }
+  return state.checkpointPath;
+}
+
+async function clearStaleStage2Outputs(artifactDir: string): Promise<void> {
+  await Promise.all(
+    ["report.md", "checkpoint_stage2.md", "stage2_collection_gap.md"].map((name) =>
+      unlink(join(artifactDir, name)).catch((error: NodeJS.ErrnoException) => {
+        if (error.code !== "ENOENT") throw error;
+      }),
+    ),
+  );
+}
+
+export async function hasCompleteStage2Outputs(artifactDir: string): Promise<boolean> {
+  return (
+    (await isNonEmptyRegularFile(join(artifactDir, "report.md"))) &&
+    (await isNonEmptyRegularFile(join(artifactDir, "checkpoint_stage2.md")))
+  );
+}
+
+async function isNonEmptyRegularFile(path: string): Promise<boolean> {
+  try {
+    const file = await stat(path);
+    return file.isFile() && file.size > 0;
+  } catch {
+    return false;
+  }
 }
 
 function stripProviderPrefix(model: string, provider: string) {

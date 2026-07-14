@@ -64,13 +64,21 @@ export function buildResearchPrompt(context: ResearchRunContext): string {
   ].join("\n");
 }
 
-export function buildStage1Prompt(context: ResearchRunContext): string {
+export function buildStage1Prompt(
+  context: ResearchRunContext,
+  rollbackGapPath: string | null = null,
+): string {
   return [
     buildResearchPrompt(context),
     "",
     "<host_stage_contract>",
     "stage: stage1_collect_and_freeze",
     "Complete evidence collection, raw caching, inventory.md, validate-inventory, and checkpoint_stage1.md only.",
+    ...(rollbackGapPath
+      ? [
+          `A prior Stage 2 invocation recorded an essential evidence gap at ${rollbackGapPath}. Read it first, collect the missing evidence, then refresh the inventory and Stage 1 checkpoint.`,
+        ]
+      : []),
     "Do not write report.md. The host will start a separate fresh Agent invocation for Stage 2 after the checkpoint exists.",
     "</host_stage_contract>",
   ].join("\n");

@@ -57,8 +57,11 @@ File-based, local-first. No database. Managed by `SessionStore`.
   with partial output preserved.
 - **Artifact-based resume**: interrupted research reuses its preserved run
   directory and starts a fresh target invocation at the mechanically determined
-  stage. Provider conversation tokens are intentionally not resumed across the
-  Stage 1/Stage 2 isolation boundary.
+  stage only when the new prompt is an explicit continuation, retry, or names
+  the product recorded in the prior run. A different or unknown subject starts
+  in a fresh directory so it cannot inherit another product's frozen inventory.
+  Provider conversation tokens are intentionally not resumed across the Stage
+  1/Stage 2 isolation boundary.
 - **Target identity**: `agentTargetId` is the selection, API, session, and resume
   identity. `providerId` is derived runtime metadata only. Deprecated provider
   inputs are accepted only when the full catalog proves a unique mapping.
@@ -73,7 +76,10 @@ File-based, local-first. No database. Managed by `SessionStore`.
   a mechanically required frozen artifact checkpoint. Stage 2 starts only when
   `checkpoint_stage1.md` exists, receives no Stage 1 history or resume token, and
   may read only the recorded evidence/inventory/checkpoint rather than unrecorded
-  collection reasoning.
+  collection reasoning. If Stage 2 writes `stage2_collection_gap.md`, the host
+  treats it as durable rollback state: the next retry returns to Stage 1 to
+  collect the missing evidence before launching a fresh Stage 2. Completion
+  requires non-empty regular `report.md` and `checkpoint_stage2.md` files.
 - **Artifact capture is success-only**: artifacts are scanned/indexed only when a
   run completes normally. Files written by a cancelled/failed run remain on disk
   under `runs/<runId>/` but are not added to the artifact panel.
