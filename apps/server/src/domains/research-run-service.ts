@@ -356,7 +356,7 @@ export class ResearchRunService {
 
 /** Files that mark a run directory as worth resuming (created by the skill). */
 const RESUMABLE_RUN_MARKERS = new Set(["run.json", "meta.json", "inventory.md", "report.md"]);
-const RESUMABLE_SKIP_DIRS = new Set([".local-agent", "__pycache__", ".git", "node_modules", "raw"]);
+const RESUMABLE_SKIP_DIRS = new Set([".local-agent", "__pycache__", ".git", "node_modules"]);
 const RESUMABLE_MAX_DEPTH = 5;
 
 /**
@@ -375,8 +375,11 @@ async function hasResumableRun(cwd: string, depth = 0): Promise<boolean> {
   for (const entry of entries) {
     if (entry.isFile() && RESUMABLE_RUN_MARKERS.has(entry.name)) return true;
   }
+  const isRunDirectory = entries.some(
+    (entry) => entry.isFile() && RESUMABLE_RUN_MARKERS.has(entry.name),
+  );
   for (const entry of entries) {
-    if (!entry.isDirectory() || RESUMABLE_SKIP_DIRS.has(entry.name)) continue;
+    if (!entry.isDirectory() || shouldSkipResumableDirectory(entry.name, isRunDirectory)) continue;
     if (await hasResumableRun(path.join(cwd, entry.name), depth + 1)) return true;
   }
   return false;
@@ -561,6 +564,9 @@ async function findResearchProductNames(cwd: string, depth = 0): Promise<string[
     return [];
   }
   const products: string[] = [];
+  const isRunDirectory = entries.some(
+    (entry) => entry.isFile() && RESUMABLE_RUN_MARKERS.has(entry.name),
+  );
   for (const entry of entries) {
     if (entry.isFile() && entry.name === "meta.json") {
       try {
@@ -578,10 +584,14 @@ async function findResearchProductNames(cwd: string, depth = 0): Promise<string[
     }
   }
   for (const entry of entries) {
-    if (!entry.isDirectory() || RESUMABLE_SKIP_DIRS.has(entry.name)) continue;
+    if (!entry.isDirectory() || shouldSkipResumableDirectory(entry.name, isRunDirectory)) continue;
     products.push(...(await findResearchProductNames(path.join(cwd, entry.name), depth + 1)));
   }
   return products;
+}
+
+function shouldSkipResumableDirectory(name: string, isRunDirectory: boolean): boolean {
+  return RESUMABLE_SKIP_DIRS.has(name) || (isRunDirectory && name === "raw");
 }
 
 function normalizeResearchText(value: string): string {

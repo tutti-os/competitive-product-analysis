@@ -50,6 +50,18 @@ test("raw evidence metadata cannot replace the run product identity", async (t) 
   assert.equal(await shouldResumeResearchRun(root, "Continue Notion pricing", "Research Notion"), true);
 });
 
+test("a product directory named raw is not mistaken for the evidence cache", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "competitive-resume-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const runDir = join(root, "raw", "20260715");
+  await mkdir(join(runDir, "raw"), { recursive: true });
+  await writeFile(join(runDir, "meta.json"), JSON.stringify({ product: "RAW" }));
+  await writeFile(join(runDir, "raw", "meta.json"), JSON.stringify({ product: "Cursor" }));
+
+  assert.equal(await shouldResumeResearchRun(root, "Continue RAW pricing", "Research RAW"), true);
+  assert.equal(await shouldResumeResearchRun(root, "Research Cursor", "Research RAW"), false);
+});
+
 test("pure-CJK product names can be adjacent to continuation text", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "competitive-resume-"));
   t.after(() => rm(root, { recursive: true, force: true }));
