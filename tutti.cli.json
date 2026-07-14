@@ -8,8 +8,8 @@
   "commands": [
     {
       "path": ["status"],
-      "summary": "Show runtime and provider status",
-      "description": "Report app health: whether the research skill is bundled, which local agent providers are detected, the default provider, library counts, and whether the Tutti CLI bridge is reachable.",
+      "summary": "Show runtime and agent status",
+      "description": "Report app health: whether the research skill is bundled, which exact Agent Targets are available, the default Agent Target, library counts, and whether the Tutti CLI bridge is reachable.",
       "inputSchema": {
         "type": "object",
         "properties": {}
@@ -137,13 +137,17 @@
             "type": "string",
             "description": "Optional existing session id to continue; a new session is created when omitted."
           },
+          "agent-id": {
+            "type": "string",
+            "description": "Exact Agent Target ID. Discover current values with `tutti agent list --json`."
+          },
           "provider": {
             "type": "string",
-            "description": "Local agent provider override (e.g. claude or codex)."
+            "description": "Deprecated provider compatibility input. Accepted only when exactly one current Agent Target uses the provider."
           },
           "model": {
             "type": "string",
-            "description": "Model override for the chosen provider."
+            "description": "Model override for the chosen Agent Target."
           }
         },
         "required": ["product"]

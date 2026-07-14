@@ -2,12 +2,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { LoaderCircle, ShieldAlert } from "lucide-react";
 
 import type {
-  AgentProviderSummary,
+  AgentTargetSummary,
   AgentRunEvent,
   ChatMessage,
   ResearchArtifact,
   ResearchSession,
 } from "@product-competition/shared";
+import { resolveInitialAgentSelection } from "@product-competition/shared";
 
 import {
   activateSession,
@@ -38,7 +39,7 @@ export function App() {
 
   const [sessions, setSessions] = useState<ResearchSession[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
-  const [providers, setProviders] = useState<AgentProviderSummary[]>([]);
+  const [agents, setAgents] = useState<AgentTargetSummary[]>([]);
   const [selection, setSelection] = useState<AgentSelection | null>(null);
 
   const [messagesBySession, setMessagesBySession] = useState<Record<string, ChatMessage[]>>({});
@@ -68,9 +69,22 @@ export function App() {
         const boot = await fetchBootstrap();
         if (cancelled) return;
         setSessions(boot.sessions);
-        setProviders(boot.agentProviders);
+        setAgents(boot.agentTargets);
         setActiveSessionId(boot.activeSessionId);
-        setSelection(resolveInitialSelection(boot.agentProviders, boot.defaultProvider));
+        let storedSelection: unknown;
+        try {
+          const stored = localStorage.getItem(SELECTION_KEY);
+          storedSelection = stored ? JSON.parse(stored) : undefined;
+        } catch {
+          storedSelection = undefined;
+        }
+        setSelection(
+          resolveInitialAgentSelection(
+            boot.agentTargets,
+            boot.defaultAgentTargetId,
+            storedSelection,
+          ),
+        );
         if (boot.activeSessionId) {
           await loadSession(boot.activeSessionId);
         }
@@ -222,7 +236,7 @@ export function App() {
       {
         sessionId: runSessionId,
         prompt: text,
-        provider: selection.provider,
+        agentTargetId: selection.agentTargetId,
         ...(selection.model ? { model: selection.model } : {}),
       },
       {
@@ -333,7 +347,7 @@ export function App() {
         <ChatThread messages={activeMessages} isRunning={activeIsRunning} />
 
         <ChatInput
-          providers={providers}
+          agents={agents}
           selection={selection}
           onSelectionChange={handleSelectionChange}
           isRunning={activeIsRunning}
@@ -355,26 +369,6 @@ export function App() {
       ) : null}
     </main>
   );
-}
-
-function resolveInitialSelection(
-  providers: AgentProviderSummary[],
-  defaultProvider: string | null,
-): AgentSelection | null {
-  const ready = providers.filter((provider) => provider.status === "ready");
-  try {
-    const stored = localStorage.getItem(SELECTION_KEY);
-    if (stored) {
-      const parsed = JSON.parse(stored) as AgentSelection;
-      if (ready.some((provider) => provider.provider === parsed.provider)) {
-        return parsed;
-      }
-    }
-  } catch {
-    // Ignore malformed storage.
-  }
-  if (defaultProvider) return { provider: defaultProvider, model: "" };
-  return ready[0] ? { provider: ready[0].provider, model: "" } : null;
 }
 
 function mergeArtifacts(existing: ResearchArtifact[], incoming: ResearchArtifact[]): ResearchArtifact[] {

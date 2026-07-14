@@ -24,7 +24,11 @@ export interface ResearchRunContext {
   skill: SkillMaterializationRecord | null;
   /** Python interpreter the skill scripts should run with. */
   pythonBin: string;
-  /** Requested canonical provider id (e.g. "claude-code", "codex"). */
+  /** Exact Tutti agent target selected for this run. */
+  agentTargetId?: string;
+  /** Runtime metadata resolved from agentTargetId; never a selection identity. */
+  providerId?: string;
+  /** @deprecated Compatibility input, resolved only when unique in the catalog. */
   provider?: string;
   /** Requested model id. */
   model?: string;
@@ -54,7 +58,8 @@ export type RuntimeStreamEvent =
   | { type: "stderr"; text: string };
 
 export interface RuntimeRunDescriptor {
-  provider: string;
+  agentTargetId: string;
+  providerId: string;
   model: string;
 }
 

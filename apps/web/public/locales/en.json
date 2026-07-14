@@ -106,5 +106,5 @@
 
   "agent.pick": "Pick an agent",
   "agent.none": "No agent",
-  "agent.noneHint": "No local agent detected. Install and sign in to Claude or Codex to run research."
+  "agent.noneHint": "No compatible local agent is available. Check the current Tutti agent list and authentication, then retry."
 }

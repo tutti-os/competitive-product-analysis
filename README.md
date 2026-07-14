@@ -35,7 +35,7 @@ See [`COMMANDS.md`](COMMANDS.md) for the full command and HTTP surface.
 
 ## How it works
 
-1. Pick a local agent (Claude by default — the skill is tuned for Claude — or Codex).
+1. Pick an available Agent Target from the current Tutti agent catalog.
 2. Type a research request, e.g. **`调研一下 Notion`** or **`research Cursor`**.
 3. The agent runs the product-swipefile staged pipeline (evidence collection →
    inventory → gap checks → writing → validation) inside a per-run working
@@ -46,13 +46,13 @@ See [`COMMANDS.md`](COMMANDS.md) for the full command and HTTP surface.
 
 ```text
 ResearchRunService (orchestrator)
-  -> LocalAgentResearchProvider  (@tutti-os/agent-acp-kit -> Claude/Codex CLI)
+  -> LocalAgentResearchProvider  (@tutti-os/agent-acp-kit -> selected Agent Target)
       -> skillManifest materializes product-swipefile into the run cwd
       -> scanRunArtifacts captures report.md / inventory.md / meta.json
 ```
 
-A local agent (Claude or Codex, installed and signed in) is required; there is
-no offline fallback.
+A compatible local Agent Target must be available and authenticated; there is no
+offline fallback. Discover current targets with `tutti agent list --json`.
 
 ## Development
 

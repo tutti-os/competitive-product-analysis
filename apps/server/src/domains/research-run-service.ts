@@ -103,7 +103,8 @@ export class ResearchRunService {
       agentSessionsDir: this.config.paths.agentSessionsDir,
       skill,
       pythonBin: this.config.pythonBin,
-      ...(request.provider ? { provider: request.provider } : {}),
+      ...(request.agentTargetId ? { agentTargetId: request.agentTargetId } : {}),
+      ...(!request.agentTargetId && request.provider ? { provider: request.provider } : {}),
       ...(request.model ? { model: request.model } : {}),
       ...(resuming ? { resuming: true } : {}),
       signal: controller.signal,
@@ -152,16 +153,26 @@ export class ResearchRunService {
       if (!detection.available) {
         throw new Error(detection.reason ?? "The selected agent runtime is not available.");
       }
-      const resolvedContext = detection.provider && !context.provider
-        ? { ...context, provider: detection.provider }
-        : context;
+      const resolvedContext = {
+        ...context,
+        agentTargetId: detection.agentTargetId,
+        providerId: detection.providerId,
+      };
       const descriptor = this.provider.describeRun(resolvedContext);
+
+      await this.store.updateSession(session.id, {
+        agentTargetId: descriptor.agentTargetId,
+        providerId: descriptor.providerId,
+        provider: descriptor.providerId,
+      });
 
       emit({
         type: "run_started",
         runId,
         sessionId: session.id,
-        provider: descriptor.provider,
+        agentTargetId: descriptor.agentTargetId,
+        providerId: descriptor.providerId,
+        provider: descriptor.providerId,
         model: descriptor.model,
       });
 
@@ -362,7 +373,7 @@ function buildHistory(messages: ChatMessage[]): RuntimeHistoryMessage[] {
 
 /**
  * Strip environment/CLI noise that is meaningless to a research user before a
- * message is shown in the chat: Claude Code SessionStart/SessionEnd hook
+ * message is shown in the chat: provider lifecycle hooks
  * failures (e.g. an external "Flux Island" hook), bare "Hook cancelled" lines,
  * and resume-session diagnostics that the orchestrator already recovers from.
  */

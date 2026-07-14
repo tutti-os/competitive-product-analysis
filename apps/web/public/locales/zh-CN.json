@@ -106,5 +106,5 @@
 
   "agent.pick": "选择 agent",
   "agent.none": "无可用 agent",
-  "agent.noneHint": "未检测到本地 agent。请安装并登录 Claude 或 Codex 后再进行调研。"
+  "agent.noneHint": "当前没有可用的兼容 agent。请检查 Tutti agent 列表与登录状态后重试。"
 }

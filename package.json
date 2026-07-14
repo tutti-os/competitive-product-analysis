@@ -11,6 +11,7 @@
     "dev:server": "pnpm --filter @product-competition/server dev",
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
+    "test": "pnpm --filter @product-competition/shared build && pnpm --filter @product-competition/server test",
     "check:i18n": "node scripts/check-i18n.mjs",
     "check": "pnpm run typecheck && pnpm run check:i18n",
     "package:tutti": "node scripts/package-tutti-app.mjs",

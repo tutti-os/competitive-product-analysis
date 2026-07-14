@@ -3,8 +3,12 @@ import path from "node:path";
 
 const SKILL_SLUG = "product-swipefile";
 const SKILL_MAIN = "SKILL.md";
-/** Folders worth materializing for the agent; assets/docs are skipped. */
-const INCLUDED_TOP_LEVEL = new Set(["references", "scripts", "run.py"]);
+/**
+ * Provider-agnostic files worth materializing for the selected Agent Target.
+ * The vendored root run.py launches a nested provider-specific process, so the
+ * app intentionally excludes it and has the current target execute the stages.
+ */
+const INCLUDED_TOP_LEVEL = new Set(["references", "scripts"]);
 const SKIP_DIR_NAMES = new Set(["__pycache__", ".git", "assets"]);
 
 export interface SkillMaterializationFile {

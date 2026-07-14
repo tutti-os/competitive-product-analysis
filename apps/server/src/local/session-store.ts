@@ -101,7 +101,12 @@ export class SessionStore {
 
   async updateSession(
     sessionId: string,
-    patch: Partial<Pick<ResearchSession, "title" | "productName" | "status" | "lastRunId">>,
+    patch: Partial<
+      Pick<
+        ResearchSession,
+        "title" | "productName" | "status" | "lastRunId" | "agentTargetId" | "providerId" | "provider"
+      >
+    >,
   ): Promise<ResearchSession | null> {
     let updated: ResearchSession | null = null;
     await this.mutateIndex((index) => ({

@@ -5,7 +5,14 @@ import {
   createDefaultLocalAgentRuntime,
   type AgentEvent,
 } from "@tutti-os/agent-acp-kit";
-import { detectAgentProviderCatalog } from "../domains/agent-service.js";
+import {
+  loadTuttiAgentComposerOptions,
+  loadTuttiAgentSkillContext,
+} from "@tutti-os/agent-acp-kit/tutti";
+import {
+  detectAgentCatalog,
+  resolveAgentSelection,
+} from "../domains/agent-service.js";
 
 import { buildResearchPrompt, buildResearchSystemPrompt } from "./research-prompt.js";
 import {
@@ -15,10 +22,9 @@ import {
   type RuntimeStreamEvent,
 } from "./runtime-provider.js";
 
-// Aligned with the product-swipefile skill's budget: run.py allows 5400s (90 min)
-// PER STAGE across two stages (collection + writing). This single local-agent run
-// covers the whole staged pipeline in one process, so it gets the full 2-stage
-// budget. Override with PRODUCT_COMPETITION_LOCAL_AGENT_TIMEOUT_MS when needed.
+// Aligned with the product-swipefile skill's 90-minute budget per stage across
+// collection and writing. The selected target executes both stages in this one
+// process, so it gets the full 2-stage budget. Override when needed.
 const DEFAULT_TIMEOUT_MS = 10_800_000; // 180 min = 2 × 90 min/stage.
 
 /**
@@ -32,35 +38,45 @@ export class LocalAgentResearchProvider {
   private readonly localAgentRuntime = createDefaultLocalAgentRuntime();
 
   describeRun(context: ResearchRunContext): RuntimeRunDescriptor {
-    if (!context.provider) {
-      throw new RuntimeProviderUnsupportedError("Agent provider must be resolved before the run starts.");
+    if (!context.agentTargetId || !context.providerId) {
+      throw new RuntimeProviderUnsupportedError("Agent target must be resolved before the run starts.");
     }
     return {
-      provider: context.provider,
+      agentTargetId: context.agentTargetId,
+      providerId: context.providerId,
       model: context.model ?? "default",
     };
   }
 
   async detect(context: ResearchRunContext) {
-    const catalog = await detectAgentProviderCatalog();
-    const provider = context.provider ?? catalog.defaultProvider;
-    if (!provider) {
+    const catalog = await detectAgentCatalog();
+    const selection = resolveAgentSelection(catalog, {
+      agentTargetId: context.agentTargetId,
+      provider: context.provider,
+    });
+    if (!selection.ok) {
       return {
         available: false,
-        reason: "No ready Tutti agent provider is available.",
+        reason:
+          selection.code === "provider_ambiguous"
+            ? `Provider ${selection.requested} maps to multiple agents; select an exact agent id.`
+            : selection.reason ?? "No ready Tutti agent is available.",
       };
     }
-    const status = catalog.providers.find((item) => item.provider === provider);
-    return status?.status === "ready"
-      ? { available: true, provider }
-      : { available: false, reason: status?.reason ?? `${provider} is not available.` };
+    return {
+      available: true,
+      agentTargetId: selection.agent.agentTargetId,
+      providerId: selection.agent.providerId,
+    };
   }
 
   async *run(context: ResearchRunContext): AsyncIterable<RuntimeStreamEvent> {
-    const provider = context.provider ?? (await detectAgentProviderCatalog()).defaultProvider;
-    if (!provider) {
-      throw new RuntimeProviderUnsupportedError("No ready Tutti agent provider is available.");
+    const detection = await this.detect(context);
+    if (!detection.available || !detection.agentTargetId || !detection.providerId) {
+      throw new RuntimeProviderUnsupportedError(detection.reason ?? "No ready Tutti agent is available.");
     }
+    const agentTargetId = detection.agentTargetId;
+    const providerId = detection.providerId;
     if (!context.skill) {
       throw new RuntimeProviderUnsupportedError(
         "The product-swipefile skill is missing, so research runs cannot be started.",
@@ -68,6 +84,29 @@ export class LocalAgentResearchProvider {
     }
 
     mkdirSync(context.cwd, { recursive: true });
+    const [composer, tuttiSkills] = await Promise.all([
+      loadTuttiAgentComposerOptions({
+        runtime: this.localAgentRuntime,
+        agentTargetId,
+        cwd: context.cwd,
+        ...(context.model ? { model: context.model } : {}),
+      }),
+      loadTuttiAgentSkillContext({
+        agentTargetId,
+        agentSessionId: context.runId,
+        cwd: context.cwd,
+      }),
+    ]);
+    const model = context.model ??
+      (composer.modelConfig.currentValue || composer.modelConfig.defaultValue || "default");
+    const permissionMode = composer.permissionConfig.modes.find(
+      (mode) => mode.id === composer.permissionConfig.defaultValue,
+    );
+    const systemPrompt = [
+      buildResearchSystemPrompt(context),
+      tuttiSkills.recommendedSystemPrompt?.content,
+    ].filter(Boolean).join("\n\n");
+
     const controller = new AbortController();
     if (context.signal) {
       if (context.signal.aborted) controller.abort();
@@ -83,7 +122,9 @@ export class LocalAgentResearchProvider {
     const sessionStore = new LocalAgentSessionStore(context.agentSessionsDir);
     const previousSession = sessionStore.read(context.sessionId);
     let resume =
-      previousSession?.provider === provider && (previousSession.providerSessionId || previousSession.resumeToken)
+      previousSession?.agentTargetId === agentTargetId &&
+      previousSession.providerId === providerId &&
+      (previousSession.providerSessionId || previousSession.resumeToken)
         ? {
             mode: "provider" as const,
             ...(previousSession.providerSessionId ? { providerSessionId: previousSession.providerSessionId } : {}),
@@ -100,15 +141,22 @@ export class LocalAgentResearchProvider {
             runId: context.runId,
             conversationId: context.sessionId,
             sessionId: context.sessionId,
-            provider,
+            provider: providerId,
             runtimeKind: "local-agent",
-            runtimeProvider: provider,
+            runtimeProvider: providerId,
             cwd: context.cwd,
             prompt: buildResearchPrompt(context),
-            systemPrompt: buildResearchSystemPrompt(context),
-            model: stripProviderPrefix(context.model ?? "default", provider),
+            systemPrompt,
+            model: stripProviderPrefix(model, providerId),
+            reasoning:
+              composer.reasoningConfig.currentValue ||
+              composer.reasoningConfig.defaultValue ||
+              undefined,
+            permission: permissionMode
+              ? { modeId: permissionMode.id, semantic: permissionMode.semantic }
+              : undefined,
             ...(context.history.length > 0 ? { history: context.history } : {}),
-            skillManifest: [context.skill],
+            skillManifest: [...tuttiSkills.skillManifest, context.skill],
             env: {
               PRODUCT_SWIPEFILE_PYTHON: context.pythonBin,
             },
@@ -128,14 +176,15 @@ export class LocalAgentResearchProvider {
             } else if (event.type === "done") {
               if (event.sessionId || event.resumeToken) {
                 sessionStore.write(context.sessionId, {
-                  provider,
+                  agentTargetId,
+                  providerId,
                   providerSessionId: event.sessionId,
                   resumeToken: event.resumeToken,
                 });
               }
               if (event.status === "failed") {
                 throw new Error(
-                  `local-agent ${provider} failed${typeof event.exitCode === "number" ? ` with exit code ${event.exitCode}` : ""}`,
+                  `local-agent ${agentTargetId} failed${typeof event.exitCode === "number" ? ` with exit code ${event.exitCode}` : ""}`,
                 );
               }
             }
@@ -194,7 +243,8 @@ function toRuntimeStreamEvent(event: AgentEvent): RuntimeStreamEvent | null {
 }
 
 interface StoredLocalAgentSession {
-  provider: string;
+  agentTargetId: string;
+  providerId: string;
   providerSessionId?: string;
   resumeToken?: string;
   updatedAt: string;
@@ -206,7 +256,10 @@ class LocalAgentSessionStore {
   read(sessionId: string): StoredLocalAgentSession | null {
     try {
       const parsed = JSON.parse(readFileSync(this.pathFor(sessionId), "utf8")) as StoredLocalAgentSession;
-      return typeof parsed.provider === "string" && parsed.provider ? parsed : null;
+      return typeof parsed.agentTargetId === "string" && parsed.agentTargetId &&
+        typeof parsed.providerId === "string" && parsed.providerId
+        ? parsed
+        : null;
     } catch {
       return null;
     }
@@ -236,9 +289,9 @@ function isRecoverableResumeError(error: unknown) {
   return (
     // Generic resume failures surfaced by the kit / different CLIs.
     /thread\/resume|resume failed|no rollout found/i.test(message) ||
-    // Claude CLI emits "No conversation found with session ID: <id>" when the
-    // stored session was purged (e.g. the previous run was cancelled). Match
-    // both "no <thing> found" and "<thing> ... not found" phrasings.
+    // Some provider CLIs report "No conversation found with session ID: <id>"
+    // after a stored session is purged. Match both "no <thing> found" and
+    // "<thing> ... not found" phrasings.
     /no (?:session|conversation|thread|rollout) found/i.test(message) ||
     /(?:session|conversation|thread)\b[^\n]*\bnot found/i.test(message)
   );

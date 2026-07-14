@@ -21,8 +21,8 @@ import {
 import { APP_ID, APP_NAME, APP_VERSION } from "./app-meta.js";
 import { createRuntimeConfig } from "./config.js";
 import {
-  detectAgentProviderCatalog,
-  warmAgentProviders,
+  detectAgentCatalog,
+  warmAgentCatalog,
 } from "./domains/agent-service.js";
 import {
   cliError,
@@ -48,10 +48,10 @@ const researchRuns = new ResearchRunService(runtimeConfig, store, provider);
 // sessions missing from the index and demote runs stuck in "running".
 await store.reconcileOnStartup().catch(() => undefined);
 
-// Warm provider detection in the background (non-blocking) so the first
+// Warm agent detection in the background (non-blocking) so the first
 // app-to-app `status`/`research` precheck answers from cache rather than paying
 // the multi-second detect cost that previously pushed `status` near its timeout.
-warmAgentProviders();
+warmAgentCatalog();
 
 await app.register(fastifyWebsocket);
 
@@ -80,13 +80,13 @@ app.get(API_ROUTES.bootstrap, async () => {
   const [sessions, activeSessionId, agentCatalog] = await Promise.all([
     store.listSessions(),
     store.getActiveSessionId(),
-    detectAgentProviderCatalog(),
+    detectAgentCatalog(),
   ]);
   return {
     sessions,
     activeSessionId,
-    agentProviders: agentCatalog.providers,
-    defaultProvider: agentCatalog.defaultProvider,
+    agentTargets: agentCatalog.agents,
+    defaultAgentTargetId: agentCatalog.defaultAgentTargetId,
   };
 });
 
