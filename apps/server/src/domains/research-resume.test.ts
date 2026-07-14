@@ -50,6 +50,18 @@ test("raw evidence metadata cannot replace the run product identity", async (t) 
   assert.equal(await shouldResumeResearchRun(root, "Continue Notion pricing", "Research Notion"), true);
 });
 
+test("pure-CJK product names can be adjacent to continuation text", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "competitive-resume-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const runDir = join(root, "feishu", "20260715");
+  await mkdir(runDir, { recursive: true });
+  await writeFile(join(runDir, "meta.json"), JSON.stringify({ product: "飞书" }));
+
+  assert.equal(await shouldResumeResearchRun(root, "继续调研飞书的定价证据", "调研飞书"), true);
+  assert.equal(await shouldResumeResearchRun(root, "继续调研飞书文档", "调研飞书"), false);
+  assert.equal(await shouldResumeResearchRun(root, "继续调研钉钉", "调研飞书"), false);
+});
+
 test("a different or unknown product starts in a fresh working directory", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "competitive-resume-"));
   t.after(() => rm(root, { recursive: true, force: true }));

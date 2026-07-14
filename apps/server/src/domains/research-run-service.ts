@@ -546,7 +546,10 @@ function researchProductPattern(product: string, global = false): RegExp {
       flags,
     );
   }
-  return new RegExp(`(?:^|[\\s，。！？：:])${escaped}(?=$|[\\s，。！？：:的])`, flags);
+  // CJK product names are commonly written directly next to surrounding verbs
+  // and particles. Residual-token validation still rejects a second subject
+  // after the exact product name has been removed.
+  return new RegExp(escaped, flags);
 }
 
 async function findResearchProductNames(cwd: string, depth = 0): Promise<string[]> {
