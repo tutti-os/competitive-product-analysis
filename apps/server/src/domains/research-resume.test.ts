@@ -17,6 +17,8 @@ test("resume accepts exact retries, explicit continuations, and the same recorde
   assert.equal(await shouldResumeResearchRun(root, "继续补齐定价证据", "调研 Notion"), true);
   assert.equal(await shouldResumeResearchRun(root, "Retry the Notion analysis", "Research Notion"), true);
   assert.equal(await shouldResumeResearchRun(root, "Continue research Notion", "Research Notion"), true);
+  assert.equal(await shouldResumeResearchRun(root, "Keep going", "Research Notion"), true);
+  assert.equal(await shouldResumeResearchRun(root, "Go on", "Research Notion"), true);
 });
 
 test("a different or unknown product starts in a fresh working directory", async (t) => {
@@ -56,6 +58,8 @@ test("without metadata, resume requires the current and prior subject tokens to 
   assert.equal(await shouldResumeResearchRun(root, "继续调研 Notion", "Research Notion"), true);
   assert.equal(await shouldResumeResearchRun(root, "Continue research Notion", "Research Notion"), true);
   assert.equal(await shouldResumeResearchRun(root, "Retry the Notion analysis", "Research Notion"), true);
+  assert.equal(await shouldResumeResearchRun(root, "Keep going", "Research Notion"), true);
+  assert.equal(await shouldResumeResearchRun(root, "Go on", "Research Notion"), true);
   assert.equal(await shouldResumeResearchRun(root, "Continue research Cursor", "Research Notion"), false);
   assert.equal(
     await shouldResumeResearchRun(root, "继续补充 Notion Calendar", "Research Notion"),

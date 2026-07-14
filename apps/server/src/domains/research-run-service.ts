@@ -423,6 +423,7 @@ const SAFE_CONTINUATION_WORDS = new Set([
   "write",
   "writing",
 ]);
+const SAFE_CONTINUATION_PHRASES = ["keep going", "go on", "try again"];
 const SAFE_CONTINUATION_CJK = [
   "继续完成",
   "重新来",
@@ -536,6 +537,9 @@ function unknownContinuationTokens(
       new RegExp(`(?:^|[^\\p{L}\\p{N}])${escaped}(?=$|[^\\p{L}\\p{N}])`, "giu"),
       " ",
     );
+  }
+  for (const phrase of SAFE_CONTINUATION_PHRASES) {
+    residual = residual.split(phrase).join(" ");
   }
   for (const phrase of SAFE_CONTINUATION_CJK) {
     residual = residual.split(phrase).join(" ");
