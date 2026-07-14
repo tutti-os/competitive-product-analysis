@@ -384,6 +384,89 @@ async function hasResumableRun(cwd: string, depth = 0): Promise<boolean> {
 
 const CONTINUATION_PROMPT =
   /^(?:(?:continue|resume|retry|try\s+again|keep\s+going|go\s+on)(?:$|\b|[\s，。！？：:])|(?:继续|接着|重试|再试|重新来|补充|完善))/iu;
+const SAFE_CONTINUATION_WORDS = new Set([
+  "again",
+  "analysis",
+  "and",
+  "collect",
+  "collection",
+  "complete",
+  "continue",
+  "coverage",
+  "details",
+  "evidence",
+  "expand",
+  "features",
+  "finish",
+  "fix",
+  "from",
+  "gaps",
+  "go",
+  "going",
+  "improve",
+  "keep",
+  "missing",
+  "more",
+  "of",
+  "on",
+  "please",
+  "pricing",
+  "refine",
+  "report",
+  "research",
+  "researching",
+  "resume",
+  "retry",
+  "sources",
+  "the",
+  "try",
+  "update",
+  "validate",
+  "validation",
+  "with",
+  "write",
+  "writing",
+]);
+const SAFE_CONTINUATION_CJK = [
+  "继续完成",
+  "重新来",
+  "继续",
+  "接着",
+  "重试",
+  "再试",
+  "补充",
+  "完善",
+  "调研",
+  "研究",
+  "分析",
+  "调查",
+  "看看",
+  "一下",
+  "补齐",
+  "定价",
+  "证据",
+  "报告",
+  "功能",
+  "覆盖",
+  "细节",
+  "来源",
+  "缺口",
+  "缺失",
+  "更多",
+  "完成",
+  "改进",
+  "更新",
+  "扩展",
+  "优化",
+  "收集",
+  "撰写",
+  "写作",
+  "验证",
+  "并且",
+  "请",
+  "和",
+  "的",
+];
 
 /**
  * A failed run is reused only when the new message is recognizably about the
@@ -400,18 +483,6 @@ export async function shouldResumeResearchRun(
   if (priorPrompt && current === normalizeResearchText(priorPrompt)) return true;
 
   const productNames = await findResearchProductNames(cwd);
-  const currentSubject = extractExplicitResearchSubject(currentPrompt);
-  const knownSubjects = productNames.map(normalizeResearchText).filter(Boolean);
-  if (currentSubject) {
-    if (knownSubjects.length > 0) {
-      return knownSubjects.includes(currentSubject);
-    }
-    const priorSubject = priorPrompt
-      ? extractExplicitResearchSubject(priorPrompt)
-      : null;
-    return priorSubject !== null && currentSubject === priorSubject;
-  }
-
   const namesRecordedProduct = productNames.some((product) => {
     const normalizedProduct = normalizeResearchText(product);
     if (!normalizedProduct) return false;
@@ -420,19 +491,31 @@ export async function shouldResumeResearchRun(
       current,
     );
   });
-  if (namesRecordedProduct) return true;
-  return CONTINUATION_PROMPT.test(currentPrompt.trim());
+  if (!namesRecordedProduct && !CONTINUATION_PROMPT.test(currentPrompt.trim())) {
+    return false;
+  }
+  return hasOnlyKnownContinuationVocabulary(currentPrompt, productNames);
 }
 
-function extractExplicitResearchSubject(prompt: string): string | null {
-  const english = prompt.match(
-    /\b(?:research|analy[sz]e|investigate|review)\s+(?:the\s+)?([\p{L}\p{N}._-]+(?:\s+[\p{L}\p{N}._-]+){0,3})/iu,
-  )?.[1];
-  if (english) return normalizeResearchText(english);
-  const chinese = prompt.match(
-    /(?:调研|研究|分析|调查|看看)(?:一下)?\s*([\p{Script=Han}A-Za-z0-9._-]{2,40})/u,
-  )?.[1];
-  return chinese ? normalizeResearchText(chinese) : null;
+function hasOnlyKnownContinuationVocabulary(
+  prompt: string,
+  productNames: string[],
+): boolean {
+  let residual = normalizeResearchText(prompt);
+  for (const product of productNames) {
+    const normalizedProduct = normalizeResearchText(product);
+    if (!normalizedProduct) continue;
+    const escaped = normalizedProduct.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+    residual = residual.replace(
+      new RegExp(`(?:^|[^\\p{L}\\p{N}])${escaped}(?=$|[^\\p{L}\\p{N}])`, "giu"),
+      " ",
+    );
+  }
+  for (const phrase of SAFE_CONTINUATION_CJK) {
+    residual = residual.split(phrase).join(" ");
+  }
+  const tokens = residual.match(/[\p{L}\p{N}._-]+/gu) ?? [];
+  return tokens.every((token) => SAFE_CONTINUATION_WORDS.has(token.toLocaleLowerCase()));
 }
 
 async function findResearchProductNames(cwd: string, depth = 0): Promise<string[]> {
