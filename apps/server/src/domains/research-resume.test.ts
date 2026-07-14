@@ -31,6 +31,9 @@ test("a different or unknown product starts in a fresh working directory", async
   assert.equal(await shouldResumeResearchRun(root, "继续调研 Cursor", "Research Notion"), false);
   assert.equal(await shouldResumeResearchRun(root, "Continue researching Cursor", "Research Notion"), false);
   assert.equal(await shouldResumeResearchRun(root, "Continue analysis of Cursor", "Research Notion"), false);
+  assert.equal(await shouldResumeResearchRun(root, "Continue research Go", "Research Notion"), false);
+  assert.equal(await shouldResumeResearchRun(root, "Continue research Keep", "Research Notion"), false);
+  assert.equal(await shouldResumeResearchRun(root, "Continue Go", "Research Notion"), false);
   assert.equal(
     await shouldResumeResearchRun(root, "Research Notion Calendar", "Research Notion"),
     false,
@@ -39,6 +42,21 @@ test("a different or unknown product starts in a fresh working directory", async
     await shouldResumeResearchRun(root, "继续调研 Notion Calendar", "Research Notion"),
     false,
   );
+  assert.equal(
+    await shouldResumeResearchRun(root, "继续补充 Notion Calendar", "Research Notion"),
+    false,
+  );
+});
+
+test("without metadata, resume requires the current and prior subject tokens to match", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "competitive-resume-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await writeFile(join(root, "inventory.md"), "partial inventory\n");
+
+  assert.equal(await shouldResumeResearchRun(root, "继续调研 Notion", "Research Notion"), true);
+  assert.equal(await shouldResumeResearchRun(root, "Continue research Notion", "Research Notion"), true);
+  assert.equal(await shouldResumeResearchRun(root, "Retry the Notion analysis", "Research Notion"), true);
+  assert.equal(await shouldResumeResearchRun(root, "Continue research Cursor", "Research Notion"), false);
   assert.equal(
     await shouldResumeResearchRun(root, "继续补充 Notion Calendar", "Research Notion"),
     false,

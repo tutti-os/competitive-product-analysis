@@ -401,14 +401,10 @@ const SAFE_CONTINUATION_WORDS = new Set([
   "fix",
   "from",
   "gaps",
-  "go",
   "going",
   "improve",
-  "keep",
   "missing",
-  "more",
   "of",
-  "on",
   "please",
   "pricing",
   "refine",
@@ -483,6 +479,15 @@ export async function shouldResumeResearchRun(
   if (priorPrompt && current === normalizeResearchText(priorPrompt)) return true;
 
   const productNames = await findResearchProductNames(cwd);
+  const explicitSubject = extractExplicitResearchSubject(currentPrompt);
+  if (explicitSubject) {
+    const knownSubjects = productNames.map(normalizeResearchText).filter(Boolean);
+    if (knownSubjects.length > 0) return knownSubjects.includes(explicitSubject);
+    const priorSubject = priorPrompt
+      ? extractExplicitResearchSubject(priorPrompt)
+      : null;
+    return priorSubject !== null && priorSubject === explicitSubject;
+  }
   const namesRecordedProduct = productNames.some((product) => {
     const normalizedProduct = normalizeResearchText(product);
     if (!normalizedProduct) return false;
@@ -491,16 +496,37 @@ export async function shouldResumeResearchRun(
       current,
     );
   });
-  if (!namesRecordedProduct && !CONTINUATION_PROMPT.test(currentPrompt.trim())) {
-    return false;
+  const isContinuation = CONTINUATION_PROMPT.test(currentPrompt.trim());
+  if (productNames.length > 0) {
+    if (!namesRecordedProduct && !isContinuation) return false;
+    return unknownContinuationTokens(currentPrompt, productNames).length === 0;
   }
-  return hasOnlyKnownContinuationVocabulary(currentPrompt, productNames);
+  const currentIdentity = unknownContinuationTokens(currentPrompt, []);
+  if (currentIdentity.length === 0) return isContinuation;
+  if (!priorPrompt) return false;
+  const priorIdentity = unknownContinuationTokens(priorPrompt, []);
+  return (
+    priorIdentity.length > 0 &&
+    currentIdentity.length === priorIdentity.length &&
+    currentIdentity.every((token, index) => token === priorIdentity[index])
+  );
 }
 
-function hasOnlyKnownContinuationVocabulary(
+function extractExplicitResearchSubject(prompt: string): string | null {
+  const english = prompt.match(
+    /\b(?:research(?:ing)?|analy[sz](?:e|ing)|analysis\s+of|investigat(?:e|ing)|review(?:ing)?)\s+(?:the\s+)?([^,.;!?，。！？：:]{1,120})/iu,
+  )?.[1];
+  if (english) return normalizeResearchText(english);
+  const chinese = prompt.match(
+    /(?:调研|研究|分析|调查|看看|补充)(?:一下)?\s*([^,.;!?，。！？：:]{1,120})/u,
+  )?.[1];
+  return chinese ? normalizeResearchText(chinese) : null;
+}
+
+function unknownContinuationTokens(
   prompt: string,
   productNames: string[],
-): boolean {
+): string[] {
   let residual = normalizeResearchText(prompt);
   for (const product of productNames) {
     const normalizedProduct = normalizeResearchText(product);
@@ -515,7 +541,9 @@ function hasOnlyKnownContinuationVocabulary(
     residual = residual.split(phrase).join(" ");
   }
   const tokens = residual.match(/[\p{L}\p{N}._-]+/gu) ?? [];
-  return tokens.every((token) => SAFE_CONTINUATION_WORDS.has(token.toLocaleLowerCase()));
+  return tokens
+    .map((token) => token.toLocaleLowerCase())
+    .filter((token) => !SAFE_CONTINUATION_WORDS.has(token));
 }
 
 async function findResearchProductNames(cwd: string, depth = 0): Promise<string[]> {
