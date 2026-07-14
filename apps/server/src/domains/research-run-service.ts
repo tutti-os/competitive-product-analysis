@@ -408,7 +408,6 @@ const SAFE_CONTINUATION_WORDS = new Set([
   "going",
   "improve",
   "missing",
-  "more",
   "of",
   "please",
   "pricing",
@@ -428,7 +427,7 @@ const SAFE_CONTINUATION_WORDS = new Set([
   "write",
   "writing",
 ]);
-const SAFE_CONTINUATION_PHRASES = ["keep going", "go on", "try again"];
+const SAFE_CONTINUATION_PHRASES = ["keep going", "go on", "try again", "with more"];
 const SAFE_CONTINUATION_CJK = [
   "继续完成",
   "重新来",
@@ -454,7 +453,8 @@ const SAFE_CONTINUATION_CJK = [
   "来源",
   "缺口",
   "缺失",
-  "更多",
+  "更多定价",
+  "更多证据",
   "完成",
   "改进",
   "更新",

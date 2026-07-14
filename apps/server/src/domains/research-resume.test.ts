@@ -47,7 +47,9 @@ test("a different or unknown product starts in a fresh working directory", async
   assert.equal(await shouldResumeResearchRun(root, "Continue analysis of Cursor", "Research Notion"), false);
   assert.equal(await shouldResumeResearchRun(root, "Continue research Go", "Research Notion"), false);
   assert.equal(await shouldResumeResearchRun(root, "Continue research Keep", "Research Notion"), false);
+  assert.equal(await shouldResumeResearchRun(root, "Continue research More", "Research Notion"), false);
   assert.equal(await shouldResumeResearchRun(root, "Continue Go", "Research Notion"), false);
+  assert.equal(await shouldResumeResearchRun(root, "Continue More", "Research Notion"), false);
   assert.equal(
     await shouldResumeResearchRun(root, "Research Notion Calendar", "Research Notion"),
     false,
