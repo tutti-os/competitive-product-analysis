@@ -79,19 +79,19 @@ test("rejects conflicting WebSocket selectors", () => {
   );
 });
 
-test("CLI manifest rejects whitespace-only exact and compatibility selectors", () => {
+test("CLI manifest keeps selector validation in the runtime contract", () => {
   const manifest = JSON.parse(
     readFileSync(new URL("../../../../tutti.cli.json", import.meta.url), "utf8"),
   ) as {
     commands: Array<{
       path: string[];
-      inputSchema: { properties: Record<string, { pattern?: string }> };
+      inputSchema: { properties: Record<string, Record<string, unknown>> };
     }>;
   };
   const research = manifest.commands.find((command) => command.path.join(" ") === "research");
   assert.ok(research);
-  assert.equal(research.inputSchema.properties["agent-id"].pattern, "\\S");
-  assert.equal(research.inputSchema.properties.provider.pattern, "\\S");
-  assert.equal(new RegExp(research.inputSchema.properties["agent-id"].pattern!).test("  "), false);
-  assert.equal(new RegExp(research.inputSchema.properties.provider.pattern!).test("  "), false);
+  assert.equal(research.inputSchema.properties["agent-id"].type, "string");
+  assert.equal(research.inputSchema.properties.provider.type, "string");
+  assert.equal("pattern" in research.inputSchema.properties["agent-id"], false);
+  assert.equal("minLength" in research.inputSchema.properties["agent-id"], false);
 });

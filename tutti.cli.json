@@ -139,14 +139,10 @@
           },
           "agent-id": {
             "type": "string",
-            "minLength": 1,
-            "pattern": "\\S",
             "description": "Exact Agent Target ID. Discover current values with `tutti agent list --json`."
           },
           "provider": {
             "type": "string",
-            "minLength": 1,
-            "pattern": "\\S",
             "description": "Deprecated provider compatibility input. Accepted only when exactly one current Agent Target uses the provider."
           },
           "model": {
@@ -154,8 +150,7 @@
             "description": "Model override for the chosen Agent Target."
           }
         },
-        "required": ["product"],
-        "not": { "required": ["agent-id", "provider"] }
+        "required": ["product"]
       },
       "output": {
         "defaultMode": "json",
