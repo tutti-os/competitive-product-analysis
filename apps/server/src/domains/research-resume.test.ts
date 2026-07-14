@@ -48,8 +48,14 @@ test("a different or unknown product starts in a fresh working directory", async
   assert.equal(await shouldResumeResearchRun(root, "Continue research Go", "Research Notion"), false);
   assert.equal(await shouldResumeResearchRun(root, "Continue research Keep", "Research Notion"), false);
   assert.equal(await shouldResumeResearchRun(root, "Continue research More", "Research Notion"), false);
+  assert.equal(await shouldResumeResearchRun(root, "Continue research Report", "Research Notion"), false);
+  assert.equal(await shouldResumeResearchRun(root, "Continue research Complete", "Research Notion"), false);
+  assert.equal(await shouldResumeResearchRun(root, "Continue research Write", "Research Notion"), false);
+  assert.equal(await shouldResumeResearchRun(root, "Continue research Update", "Research Notion"), false);
+  assert.equal(await shouldResumeResearchRun(root, "Continue research Evidence", "Research Notion"), false);
   assert.equal(await shouldResumeResearchRun(root, "Continue Go", "Research Notion"), false);
   assert.equal(await shouldResumeResearchRun(root, "Continue More", "Research Notion"), false);
+  assert.equal(await shouldResumeResearchRun(root, "Continue Report", "Research Notion"), false);
   assert.equal(
     await shouldResumeResearchRun(root, "Research Notion Calendar", "Research Notion"),
     false,
@@ -74,6 +80,8 @@ test("without metadata, resume requires the current and prior subject tokens to 
   assert.equal(await shouldResumeResearchRun(root, "Retry the Notion analysis", "Research Notion"), true);
   assert.equal(await shouldResumeResearchRun(root, "Keep going", "Research Notion"), true);
   assert.equal(await shouldResumeResearchRun(root, "Go on", "Research Notion"), true);
+  assert.equal(await shouldResumeResearchRun(root, "Continue Report", "Research Notion"), false);
+  assert.equal(await shouldResumeResearchRun(root, "Continue research Report", "Research Notion"), false);
   assert.equal(await shouldResumeResearchRun(root, "Continue research Cursor", "Research Notion"), false);
   assert.equal(
     await shouldResumeResearchRun(root, "继续补充 Notion Calendar", "Research Notion"),

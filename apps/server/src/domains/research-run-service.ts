@@ -382,8 +382,6 @@ async function hasResumableRun(cwd: string, depth = 0): Promise<boolean> {
   return false;
 }
 
-const CONTINUATION_PROMPT =
-  /^(?:(?:continue|resume|retry|try\s+again|keep\s+going|go\s+on)(?:$|\b|[\s，。！？：:])|(?:继续|接着|重试|再试|重新来|补充|完善))/iu;
 const SAFE_CONTINUATION_WORDS = new Set([
   "again",
   "analyse",
@@ -493,19 +491,27 @@ export async function shouldResumeResearchRun(
       current,
     );
   });
-  const isContinuation = CONTINUATION_PROMPT.test(currentPrompt.trim());
   if (productNames.length > 0) {
-    if (!namesRecordedProduct && !isContinuation) return false;
+    if (!namesRecordedProduct) return isSafeSubjectlessContinuation(currentPrompt);
     return unknownContinuationTokens(currentPrompt, productNames).length === 0;
   }
   const currentIdentity = unknownContinuationTokens(currentPrompt, []);
-  if (currentIdentity.length === 0) return isContinuation;
+  if (currentIdentity.length === 0) return isSafeSubjectlessContinuation(currentPrompt);
   if (!priorPrompt) return false;
   const priorIdentity = unknownContinuationTokens(priorPrompt, []);
   return (
     priorIdentity.length > 0 &&
     currentIdentity.length === priorIdentity.length &&
     currentIdentity.every((token, index) => token === priorIdentity[index])
+  );
+}
+
+function isSafeSubjectlessContinuation(prompt: string): boolean {
+  const normalized = normalizeResearchText(prompt).replace(/[.!?，。！？：:]+$/gu, "").trim();
+  if (/^(?:continue|resume|retry|try again|keep going|go on)$/u.test(normalized)) return true;
+  if (/^(?:继续|接着|重试|再试|重新来)$/u.test(normalized)) return true;
+  return /^(?:继续|接着)(?:完成|补充|完善|补齐|更新|扩展|优化|收集|撰写|写作|验证)(?:一下)?(?:更多)?(?:定价证据|证据|功能覆盖|细节|来源|缺口|缺失)$/u.test(
+    normalized,
   );
 }
 
