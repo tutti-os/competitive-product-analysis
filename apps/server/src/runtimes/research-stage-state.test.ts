@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -55,4 +55,17 @@ test("stage 2 completion requires non-empty regular files", async (t) => {
   await writeFile(join(root, "report.md"), "# Report\n");
   await writeFile(join(root, "checkpoint_stage2.md"), "validated\n");
   assert.equal(await hasCompleteStage2Outputs(root), true);
+});
+
+test("stage 2 completion rejects symlinks even when their targets are non-empty", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "competitive-stage-"));
+  const outside = await mkdtemp(join(tmpdir(), "competitive-outside-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => rm(outside, { recursive: true, force: true }));
+  const externalFile = join(outside, "external.md");
+  await writeFile(externalFile, "external content\n");
+  await symlink(externalFile, join(root, "report.md"));
+  await symlink(externalFile, join(root, "checkpoint_stage2.md"));
+
+  assert.equal(await hasCompleteStage2Outputs(root), false);
 });

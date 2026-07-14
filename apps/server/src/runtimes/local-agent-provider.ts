@@ -1,4 +1,5 @@
-import { mkdir, readdir, stat, unlink } from "node:fs/promises";
+import { constants } from "node:fs";
+import { mkdir, open, readdir, unlink } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 import { createDefaultLocalAgentRuntime, type AgentEvent } from "@tutti-os/agent-acp-kit";
@@ -382,11 +383,15 @@ export async function hasCompleteStage2Outputs(artifactDir: string): Promise<boo
 }
 
 async function isNonEmptyRegularFile(path: string): Promise<boolean> {
+  let file;
   try {
-    const file = await stat(path);
-    return file.isFile() && file.size > 0;
+    file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+    const metadata = await file.stat();
+    return metadata.isFile() && metadata.size > 0;
   } catch {
     return false;
+  } finally {
+    await file?.close().catch(() => undefined);
   }
 }
 

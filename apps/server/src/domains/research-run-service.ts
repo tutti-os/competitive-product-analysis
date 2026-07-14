@@ -398,13 +398,41 @@ export async function shouldResumeResearchRun(
   const current = normalizeResearchText(currentPrompt);
   if (!current) return false;
   if (priorPrompt && current === normalizeResearchText(priorPrompt)) return true;
-  if (CONTINUATION_PROMPT.test(currentPrompt.trim())) return true;
 
   const productNames = await findResearchProductNames(cwd);
-  return productNames.some((product) => {
+  const currentSubject = extractExplicitResearchSubject(currentPrompt);
+  const knownSubjects = productNames.map(normalizeResearchText).filter(Boolean);
+  if (currentSubject) {
+    if (knownSubjects.length > 0) {
+      return knownSubjects.includes(currentSubject);
+    }
+    const priorSubject = priorPrompt
+      ? extractExplicitResearchSubject(priorPrompt)
+      : null;
+    return priorSubject !== null && currentSubject === priorSubject;
+  }
+
+  const namesRecordedProduct = productNames.some((product) => {
     const normalizedProduct = normalizeResearchText(product);
-    return normalizedProduct.length > 0 && current.includes(normalizedProduct);
+    if (!normalizedProduct) return false;
+    const escaped = normalizedProduct.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+    return new RegExp(`(?:^|[^\\p{L}\\p{N}])${escaped}(?:$|[^\\p{L}\\p{N}])`, "iu").test(
+      current,
+    );
   });
+  if (namesRecordedProduct) return true;
+  return CONTINUATION_PROMPT.test(currentPrompt.trim());
+}
+
+function extractExplicitResearchSubject(prompt: string): string | null {
+  const english = prompt.match(
+    /\b(?:research|analy[sz]e|investigate|review)\s+(?:the\s+)?([\p{L}\p{N}._-]+(?:\s+[\p{L}\p{N}._-]+){0,3})/iu,
+  )?.[1];
+  if (english) return normalizeResearchText(english);
+  const chinese = prompt.match(
+    /(?:调研|研究|分析|调查|看看)(?:一下)?\s*([\p{Script=Han}A-Za-z0-9._-]{2,40})/u,
+  )?.[1];
+  return chinese ? normalizeResearchText(chinese) : null;
 }
 
 async function findResearchProductNames(cwd: string, depth = 0): Promise<string[]> {

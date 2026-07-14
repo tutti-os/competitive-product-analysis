@@ -16,6 +16,7 @@ test("resume accepts exact retries, explicit continuations, and the same recorde
   assert.equal(await shouldResumeResearchRun(root, "Research Notion", "Research Notion"), true);
   assert.equal(await shouldResumeResearchRun(root, "继续补齐定价证据", "调研 Notion"), true);
   assert.equal(await shouldResumeResearchRun(root, "Retry the Notion analysis", "Research Notion"), true);
+  assert.equal(await shouldResumeResearchRun(root, "Continue research Notion", "Research Notion"), true);
 });
 
 test("a different or unknown product starts in a fresh working directory", async (t) => {
@@ -27,4 +28,9 @@ test("a different or unknown product starts in a fresh working directory", async
 
   assert.equal(await shouldResumeResearchRun(root, "Research Cursor", "Research Notion"), false);
   assert.equal(await shouldResumeResearchRun(root, "What about Linear?", "Research Notion"), false);
+  assert.equal(await shouldResumeResearchRun(root, "继续调研 Cursor", "Research Notion"), false);
+  assert.equal(
+    await shouldResumeResearchRun(root, "Research Notion Calendar", "Research Notion"),
+    false,
+  );
 });
