@@ -17,7 +17,6 @@ export type AppRuntimePaths = {
   /** Vendored product-swipefile skill directory, or null when missing. */
   skillDir: string | null;
   webDistDir: string | null;
-  workspaceRoot: string | null;
 };
 
 export type AppRuntimeConfig = {
@@ -36,7 +35,6 @@ export async function createRuntimeConfig(): Promise<AppRuntimeConfig> {
   const runtimeDir = process.env.TUTTI_APP_RUNTIME_DIR ?? path.join(repoGeneratedDir, "runtime");
   const dataDir = process.env.TUTTI_APP_DATA_DIR ?? path.join(repoGeneratedDir, "data");
   const logDir = process.env.TUTTI_APP_LOG_DIR ?? path.join(repoGeneratedDir, "logs");
-  const workspaceRoot = process.env.TUTTI_WORKSPACE_ROOT ?? null;
   const sessionsDir = path.join(dataDir, "sessions");
   const sessionsIndexFile = path.join(sessionsDir, "index.json");
   const agentSessionsDir = path.join(dataDir, "agent-sessions");
@@ -69,7 +67,6 @@ export async function createRuntimeConfig(): Promise<AppRuntimeConfig> {
       agentSessionsDir,
       skillDir,
       webDistDir,
-      workspaceRoot,
     },
   };
 }
