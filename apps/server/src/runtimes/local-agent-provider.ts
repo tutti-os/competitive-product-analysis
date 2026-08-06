@@ -1,5 +1,5 @@
 import { constants } from "node:fs";
-import { mkdir, open, readdir, unlink } from "node:fs/promises";
+import { lstat, mkdir, open, readdir, unlink } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 import { createDefaultLocalAgentRuntime, type AgentEvent } from "@tutti-os/agent-acp-kit";
@@ -387,6 +387,7 @@ export async function hasCompleteStage2Outputs(artifactDir: string): Promise<boo
 async function isNonEmptyRegularFile(path: string): Promise<boolean> {
   let file;
   try {
+    if ((await lstat(path)).isSymbolicLink()) return false;
     file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
     const metadata = await file.stat();
     return metadata.isFile() && metadata.size > 0;
