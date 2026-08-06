@@ -1,10 +1,9 @@
 import { constants } from "node:fs";
-import { mkdir, open, readdir, unlink } from "node:fs/promises";
+import { lstat, mkdir, open, readdir, unlink } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 import { createDefaultLocalAgentRuntime, type AgentEvent } from "@tutti-os/agent-acp-kit";
 import {
-  loadTuttiAgentComposerOptions,
   loadTuttiAgentSkillContext,
 } from "@tutti-os/agent-acp-kit/tutti";
 import {
@@ -108,35 +107,19 @@ export class LocalAgentResearchProvider {
         }
       },
     });
-    let composer: Awaited<ReturnType<typeof loadTuttiAgentComposerOptions>>;
     let tuttiSkills: Awaited<ReturnType<typeof loadTuttiAgentSkillContext>>;
     try {
-      [composer, tuttiSkills] = await Promise.all([
-        loadTuttiAgentComposerOptions({
-          runtime: this.localAgentRuntime,
-          agentTargetId,
-          cwd: context.cwd,
-          signal: controller.signal,
-          ...(context.model ? { model: context.model } : {}),
-        }),
-        loadTuttiAgentSkillContext({
-          agentTargetId,
-          agentSessionId: context.runId,
-          cwd: context.cwd,
-          signal: controller.signal,
-        }),
-      ]);
+      tuttiSkills = await loadTuttiAgentSkillContext({
+        agentTargetId,
+        agentSessionId: context.runId,
+        cwd: context.cwd,
+        signal: controller.signal,
+      });
     } catch (error) {
       controller.abort();
       this.processes.delete(context.runId);
       throw error;
     }
-    const model =
-      context.model ??
-      (composer.modelConfig.currentValue || composer.modelConfig.defaultValue || undefined);
-    const permissionMode = composer.permissionConfig.modes.find(
-      (mode) => mode.id === composer.permissionConfig.defaultValue,
-    );
     const systemPrompt = [
       buildResearchSystemPrompt(context),
       tuttiSkills.recommendedSystemPrompt?.content,
@@ -171,6 +154,7 @@ export class LocalAgentResearchProvider {
         activeStageRunId = stageRunId;
         let terminalStatus: string | undefined;
         for await (const event of this.localAgentRuntime.run({
+          agentTargetId,
           runId: stageRunId,
           conversationId: `${context.sessionId}:${stageRunId}`,
           sessionId: stageRunId,
@@ -183,14 +167,9 @@ export class LocalAgentResearchProvider {
               ? buildStage1Prompt(context, initialState.rollbackGapPath)
               : buildStage2Prompt(context, checkpointPath!),
           systemPrompt,
-          model: model ? stripProviderPrefix(model, providerId) : undefined,
-          reasoning:
-            composer.reasoningConfig.currentValue ||
-            composer.reasoningConfig.defaultValue ||
-            undefined,
-          permission: permissionMode
-            ? { modeId: permissionMode.id, semantic: permissionMode.semantic }
-            : undefined,
+          ...(context.model
+            ? { model: stripProviderPrefix(context.model, providerId) }
+            : {}),
           ...(stage === "stage1" && context.history.length > 0 ? { history: context.history } : {}),
           skillManifest: [...tuttiSkills.skillManifest, context.skill],
           env: {
@@ -408,6 +387,7 @@ export async function hasCompleteStage2Outputs(artifactDir: string): Promise<boo
 async function isNonEmptyRegularFile(path: string): Promise<boolean> {
   let file;
   try {
+    if ((await lstat(path)).isSymbolicLink()) return false;
     file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
     const metadata = await file.stat();
     return metadata.isFile() && metadata.size > 0;

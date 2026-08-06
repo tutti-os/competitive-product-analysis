@@ -24,7 +24,7 @@ per-session store and surfaced as Tutti references.
 ## Agent flow
 
 - `ResearchRunService` (`apps/server/src/domains/research-run-service.ts`) orchestrates one chat turn: persist the user message, run the agent, stream events, capture artifacts, persist the assistant message.
-- Real work runs through `LocalAgentResearchProvider`, which calls `@tutti-os/agent-acp-kit`'s `createLocalAgentRuntime().run()`. The product-swipefile skill is injected via `skillManifest`; the kit materializes it into the run cwd before launch.
+- Real work runs through `LocalAgentResearchProvider`, which calls `@tutti-os/agent-acp-kit`'s default runtime with an exact `agentTargetId`. The product-swipefile skill is injected via `skillManifest`; the kit materializes it into the run cwd before launch.
 - The selected exact Agent Target performs the skill stages directly. Never materialize or execute the vendored root `run.py`, because it launches a nested provider-specific process; use only `scripts/research_helper.py` for deterministic stage operations.
 - The run cwd is `dataDir/sessions/<sessionId>/runs/<runId>`. After the run, `scanRunArtifacts` indexes the Markdown/JSON artifacts the skill wrote there.
 - Streaming events use the `AgentRunEvent` contract in `packages/shared` and flow over `/api/agent/stream`. The web client folds them into the assistant message's `contentBlocks`.
@@ -44,7 +44,7 @@ This app both exposes and consumes Tutti capabilities.
 
 - **Exposes** the `competition` CLI scope (`tutti.cli.json` → `/tutti/cli/*`): `status`, `sessions`, `reports`, `report`, `research`. See `COMMANDS.md`. To add a command: declare it in `tutti.cli.json` with an object `inputSchema` and an HTTP `POST` handler at `/tutti/cli/<path>`; add a matching zod request schema + route constant in `packages/shared`; implement a helper in `domains/cli-service.ts` that reuses the store/services (do not duplicate `/api/*` logic); register the route in `main.ts`. Command paths must be lowercase and must not repeat the scope.
 - **Consumes** other installed apps and the daemon via `TUTTI_CLI` (`runtimes/tutti-cli.ts`). Always read the command path from `process.env.TUTTI_CLI`, call with `--json`, keep timeouts short, and degrade gracefully when it is missing or fails (the app never depends on it at startup). The `status` command and `/api/health` report whether the bridge is reachable.
-- Agent selection is always driven by exact `agentTargetId` values discovered via `loadTuttiAgentCatalog` / `tutti agent list --json`. Treat `providerId` as runtime metadata only. Deprecated provider inputs must fail closed unless the full catalog proves a unique target mapping.
+- Agent selection is always driven by exact `agentTargetId` values returned by the kit's high-level `runtime.detect()`. Treat `providerId` as runtime metadata only. Deprecated provider inputs must fail closed unless the full catalog proves a unique target mapping.
 
 ## I18n
 

@@ -1,0 +1,71 @@
+name: Windows Runtime Check
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/check-windows.yml"
+      - ".github/fixtures/tutti-cli/**"
+      - "apps/**"
+      - "packages/**"
+      - "scripts/package-tutti-app.mjs"
+      - "package.json"
+      - "pnpm-lock.yaml"
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.26.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm package:tutti
+      - name: Compile native Tutti CLI fixture
+        shell: pwsh
+        run: |
+          $fixtureDir = Join-Path $env:RUNNER_TEMP "Tutti CLI Fixture"
+          New-Item -ItemType Directory -Force $fixtureDir | Out-Null
+          $csc = Get-ChildItem "$env:WINDIR\Microsoft.NET\Framework64" -Filter csc.exe -Recurse |
+            Sort-Object FullName |
+            Select-Object -Last 1
+          & $csc.FullName /nologo /out:"$fixtureDir\tutti.exe" ".github\fixtures\tutti-cli\Program.cs"
+          "TUTTI_FIXTURE=$fixtureDir\tutti.exe" | Out-File -FilePath $env:GITHUB_ENV -Append
+      - name: Start packaged server and discover the exact Agent Target
+        shell: pwsh
+        run: |
+          $env:TUTTI_CLI = $env:TUTTI_FIXTURE
+          $env:TUTTI_APP_PACKAGE_DIR = "$pwd\build\tutti-app\package"
+          $env:TUTTI_APP_DATA_DIR = "$env:RUNNER_TEMP\competition-data"
+          $env:TUTTI_APP_RUNTIME_DIR = "$env:RUNNER_TEMP\competition-runtime"
+          $env:TUTTI_APP_HOST = "127.0.0.1"
+          $env:TUTTI_APP_PORT = "4319"
+          $env:TUTTI_APP_NODE = (Get-Command node).Source
+          $env:TUTTI_APP_TEST_SHELL = "C:\Program Files\Git\bin\bash.exe"
+          $bootstrap = Join-Path $env:TUTTI_APP_PACKAGE_DIR "bootstrap.sh"
+          $server = Start-Process -FilePath $env:TUTTI_APP_TEST_SHELL -ArgumentList $bootstrap -PassThru
+          try {
+            for ($attempt = 0; $attempt -lt 30; $attempt++) {
+              try {
+                $health = Invoke-RestMethod "http://127.0.0.1:4319/api/health"
+                if ($health.ok) { break }
+              } catch {}
+              Start-Sleep -Milliseconds 500
+            }
+            if (-not $health.ok) { throw "Packaged server did not become healthy." }
+            $bootstrap = Invoke-RestMethod "http://127.0.0.1:4319/api/bootstrap"
+            if ($bootstrap.defaultAgentTargetId -ne "fixture:codex") {
+              throw "Native TUTTI_CLI fixture was not used for Agent Target discovery."
+            }
+          } finally {
+            Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue
+          }

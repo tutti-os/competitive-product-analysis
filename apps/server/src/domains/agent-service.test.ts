@@ -6,7 +6,6 @@ import type { AgentTargetSummary } from "@product-competition/shared";
 import {
   agentSelectionErrorMessage,
   resolveAgentSelection,
-  runtimeWasDetected,
   type AgentCatalog,
 } from "./agent-service.js";
 
@@ -79,11 +78,4 @@ test("reports actionable exact-target and ambiguous-provider errors", () => {
     }),
     /exact Agent Target/,
   );
-});
-
-test("runtime detection recognizes explicit unavailable reason codes and text", () => {
-  assert.equal(runtimeWasDetected("runtime_not_detected", undefined, true), false);
-  assert.equal(runtimeWasDetected(undefined, "Executable was not found on PATH", true), false);
-  assert.equal(runtimeWasDetected(undefined, undefined, false), false);
-  assert.equal(runtimeWasDetected(undefined, "Authentication is missing", true), true);
 });

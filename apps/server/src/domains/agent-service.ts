@@ -1,8 +1,4 @@
 import { createDefaultLocalAgentRuntime } from "@tutti-os/agent-acp-kit";
-import {
-  loadTuttiAgentCatalog,
-  loadTuttiAgentComposerOptions,
-} from "@tutti-os/agent-acp-kit/tutti";
 import type { AgentTargetSummary } from "@product-competition/shared";
 
 export type AgentCatalog = {
@@ -113,80 +109,33 @@ export function agentSelectionErrorMessage(
 
 async function runDetection(): Promise<AgentCatalog> {
   try {
-    const detectionsPromise = runtime.detect();
-    const catalogRuntime = {
-      listProviders: () => runtime.listProviders(),
-      detect: () => detectionsPromise,
-    } as typeof runtime;
-    const [catalog, detections] = await Promise.all([
-      loadTuttiAgentCatalog({ runtime: catalogRuntime }),
-      detectionsPromise,
-    ]);
-    const detectionByProvider = new Map(
-      detections.map((detection) => [detection.provider, detection]),
-    );
-    const agents = await Promise.all(
-      catalog.agents.map(async (agent) => {
-        const detection = detectionByProvider.get(agent.providerId);
-        const detected = runtimeWasDetected(
-          agent.availability.reasonCode,
-          detection?.reason,
-          Boolean(detection),
-        );
-        const supported = agent.runtimeSupported && detection?.supported !== false;
-        const authenticated =
-          detection?.authState !== "missing" && detection?.authState !== "expired";
-        const ready =
-          detected && supported && authenticated && agent.availability.status === "available";
-        let models: string[] = [];
-        let composerError: string | undefined;
-        if (ready) {
-          try {
-            const composer = await loadTuttiAgentComposerOptions({
-              runtime,
-              agentTargetId: agent.agentTargetId,
-            });
-            models = [
-              ...new Set(
-                [
-                  ...composer.modelConfig.options.map((model) => model.value),
-                  composer.modelConfig.currentValue,
-                  composer.modelConfig.defaultValue,
-                ].filter(Boolean),
-              ),
-            ];
-          } catch (error) {
-            composerError =
-              error instanceof Error ? error.message : "Target composer options are unavailable.";
-          }
-        }
-        const targetReady = ready && !composerError;
-        return {
-          agentTargetId: agent.agentTargetId,
-          providerId: agent.providerId,
-          provider: agent.providerId,
-          label: agent.displayName,
+    const detections = await runtime.detect();
+    const projected = detections.flatMap((detection) => {
+      const agentTargetId = detection.agentTargetId?.trim();
+      if (!agentTargetId) return [];
+      const authenticated =
+        detection.authState !== "missing" && detection.authState !== "expired";
+      const ready = detection.supported && authenticated;
+      const detected = detection.supported || Boolean(detection.executablePath);
+      return [{
+        agent: {
+          agentTargetId,
+          providerId: String(detection.provider),
+          provider: String(detection.provider),
+          label: detection.displayName,
           detected,
-          supported: supported && !composerError,
-          status: targetReady
-            ? "ready"
-            : agent.runtimeSupported && !detected
-              ? "not-installed"
-              : "unsupported",
-          models,
-          reason:
-            composerError ||
-            agent.availability.detail ||
-            detection?.reason ||
-            (detection?.authState === "missing"
-              ? "Agent runtime detected but authentication is missing."
-              : undefined),
-        } satisfies AgentTargetSummary;
-      }),
-    );
-    const preferred = agents.find(
-      (agent) => agent.agentTargetId === catalog.defaultAgentTargetId && agent.status === "ready",
-    );
+          supported: detection.supported,
+          status: ready ? "ready" : detected ? "unsupported" : "not-installed",
+          models: detection.models.map((model) => model.id),
+          ...(detection.reason ? { reason: detection.reason } : {}),
+        } satisfies AgentTargetSummary,
+        isDefault: detection.isDefault === true,
+      }];
+    });
+    const agents = projected.map((entry) => entry.agent);
+    const preferred = projected.find(
+      (entry) => entry.isDefault && entry.agent.status === "ready",
+    )?.agent;
     return {
       defaultAgentTargetId:
         preferred?.agentTargetId ??
@@ -197,28 +146,4 @@ async function runDetection(): Promise<AgentCatalog> {
   } catch {
     return { defaultAgentTargetId: null, agents: [] };
   }
-}
-
-export function runtimeWasDetected(
-  availabilityReasonCode: string | undefined,
-  detectionReason: string | undefined,
-  hasDetection: boolean,
-): boolean {
-  if (!hasDetection) return false;
-  const code = availabilityReasonCode?.trim().toLowerCase() ?? "";
-  if (
-    code === "runtime_not_detected" ||
-    code === "cli_not_found" ||
-    code.includes("not_installed") ||
-    code.includes("executable_not_found")
-  ) {
-    return false;
-  }
-  const reason = detectionReason?.trim().toLowerCase() ?? "";
-  return !(
-    reason.includes("executable not found") ||
-    reason.includes("executable was not found") ||
-    reason.includes("runtime was not detected") ||
-    reason.includes("runtime is not installed")
-  );
 }
