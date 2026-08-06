@@ -36,12 +36,16 @@ await chmod(path.join(packageRoot, "bootstrap.sh"), 0o755);
 
 const zipPath = path.join(buildRoot, `${appId}-${version}.zip`);
 await rm(zipPath, { force: true });
-await run("zip", ["-qry", zipPath, "."], packageRoot);
+const archive = process.platform === "win32"
+  ? { command: "tar.exe", args: ["-a", "-c", "-f", zipPath, "."] }
+  : { command: "zip", args: ["-qry", zipPath, "."] };
+await run(archive.command, archive.args, packageRoot);
 console.log(`Created ${zipPath}`);
 
 async function run(command, args, cwd) {
   await new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
+    const invocation = resolveBuildInvocation(command, args);
+    const child = spawn(invocation.command, invocation.args, {
       cwd,
       env: process.env,
       stdio: "inherit",
@@ -52,8 +56,15 @@ async function run(command, args, cwd) {
         resolve();
         return;
       }
-      reject(new Error(`${command} ${args.join(" ")} failed with exit code ${code}`));
+      reject(new Error(`${invocation.command} ${invocation.args.join(" ")} failed with exit code ${code}`));
     });
     child.on("error", reject);
   });
+}
+
+function resolveBuildInvocation(command, args) {
+  if (command !== "pnpm") return { command, args };
+  const entrypoint = process.env.npm_execpath?.trim();
+  if (!entrypoint) throw new Error("npm_execpath is required to run pnpm");
+  return { command: process.execPath, args: [entrypoint, ...args] };
 }

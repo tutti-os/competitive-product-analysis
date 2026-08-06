@@ -27,8 +27,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/shared
       '@tutti-os/agent-acp-kit':
-        specifier: 0.5.0
-        version: 0.5.0
+        specifier: 0.7.8
+        version: 0.7.8
       fastify:
         specifier: ^5.6.2
         version: 5.8.5
@@ -854,8 +854,8 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@tutti-os/agent-acp-kit@0.5.0':
-    resolution: {integrity: sha512-EI01KkkKCkrp97CMZfBkwrfFXz4WFs01+q0sSK4BiLSwU9Hs/SyuNdpYyrwClCKR4AjICDhOYk/Cojd5i4iP2g==}
+  '@tutti-os/agent-acp-kit@0.7.8':
+    resolution: {integrity: sha512-axnRH7yYL6w0uIZqXb86i7TNBwUzYgezvnm8vl/4pftBhAEl+4aXsuPDZJRFqpnp1qU4aCE8e1ldlt+Chob2Xw==}
     engines: {node: '>=22'}
 
   '@types/babel__core@7.20.5':
@@ -2258,7 +2258,7 @@ snapshots:
   '@rollup/rollup-win32-x64-msvc@4.62.0':
     optional: true
 
-  '@tutti-os/agent-acp-kit@0.5.0':
+  '@tutti-os/agent-acp-kit@0.7.8':
     dependencies:
       '@anthropic-ai/claude-agent-sdk': 0.2.141(zod@4.4.3)
       zod: 4.4.3
